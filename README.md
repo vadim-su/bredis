@@ -38,3 +38,8 @@ curl -X DELETE http://localhost:8080/keys/mykey
 ```bash
 curl -X DELETE -d "{\"prefix\":\"my\"}" http://localhost:8080/keys
 ```
+
+## ROADMAP
+- [] Add EXPIRE and TTL operations
+- [] Add pure in-memory rust backend
+- [] Support stream protocol (websocks, protobuf, resp?)
