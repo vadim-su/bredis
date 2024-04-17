@@ -1,3 +1,5 @@
+<img src="https://github.com/vadim-su/bredis/assets/1702003/f046fac9-f25f-4f9e-8aa2-fbca414df8e4" width="200" />
+
 # Bredis
 Bredis is a Redis-like database with similar functions and an HTTP API.
 
