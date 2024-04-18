@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use actix_web::web;
 
-use crate::database::Database;
+use crate::database::{Database, StorageValue, ValueType};
 use crate::server::models;
 
 use super::models::GetResponse;
@@ -40,19 +40,20 @@ impl QueryService {
     ) -> web::Json<models::ApiResponse<GetResponse>> {
         let possible_value = db.get(key.as_bytes());
         return match possible_value {
-            Ok(Some(value)) => {
-                let raw_value = String::from_utf8(value);
-                match raw_value {
-                    Ok(value) => web::Json(models::ApiResponse::Success(models::GetResponse {
-                        value: Some(value),
-                    })),
-                    Err(e) => {
-                        web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
-                            error: format!("{}", e),
-                        }))
-                    }
+            Ok(Some(sotre_value)) => match sotre_value.value_type {
+                ValueType::Integer => {
+                    web::Json(models::ApiResponse::Success(models::GetResponse {
+                        value: Some(models::IntOrString::Int(i64::from_be_bytes(
+                            sotre_value.value.as_slice().try_into().unwrap(),
+                        ))),
+                    }))
                 }
-            }
+                ValueType::String => web::Json(models::ApiResponse::Success(models::GetResponse {
+                    value: Some(models::IntOrString::String(
+                        String::from_utf8(sotre_value.value.clone()).unwrap(),
+                    )),
+                })),
+            },
             Ok(None) => web::Json(models::ApiResponse::Success(models::GetResponse {
                 value: None,
             })),
@@ -81,7 +82,20 @@ impl QueryService {
         db: web::Data<Arc<Database>>,
         request: web::Json<models::SetRequest>,
     ) -> web::Json<models::ApiResponse<models::OperationSuccessResponse>> {
-        let result = db.set(request.key.as_bytes(), request.value.as_bytes());
+        let store_value = match &request.value {
+            models::IntOrString::Int(i) => StorageValue {
+                value_type: ValueType::Integer,
+                ttl: request.ttl,
+                value: i.to_be_bytes().to_vec(),
+            },
+            models::IntOrString::String(s) => StorageValue {
+                value_type: ValueType::String,
+                ttl: request.ttl,
+                value: s.as_bytes().to_vec(),
+            },
+        };
+
+        let result = db.set(request.key.as_bytes(), &store_value);
         return match result {
             Ok(_) => web::Json(models::ApiResponse::Success(
                 models::OperationSuccessResponse { success: true },
@@ -129,6 +143,8 @@ impl QueryService {
 #[cfg(test)]
 mod tests {
     use actix_web::{test, App};
+
+    use crate::database::{StorageValue, ValueType};
 
     use super::*;
 
@@ -183,7 +199,8 @@ mod tests {
             .uri("/keys")
             .set_json(&models::SetRequest {
                 key: "key3".to_string(),
-                value: "value3".to_string(),
+                value: models::IntOrString::String("value3".to_string()),
+                ttl: -1,
             })
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -210,7 +227,7 @@ mod tests {
             resp.response().body()
         );
 
-        assert_eq!(db.get(b"key1").unwrap(), None);
+        assert!(db.get(b"key1").unwrap().is_none());
     }
 
     #[actix_web::test]
@@ -232,18 +249,60 @@ mod tests {
             resp.response().body()
         );
 
-        assert_eq!(db.get(b"prefix_key1").unwrap(), None);
-        assert_eq!(db.get(b"prefix_key2").unwrap(), None);
-        assert_eq!(db.get(b"key1").unwrap(), Some(b"value1".to_vec()));
+        assert!(db.get(b"prefix_key1").unwrap().is_none());
+        assert!(db.get(b"prefix_key2").unwrap().is_none());
+        assert!(db.get(b"key1").unwrap().is_some());
+    }
+
+    #[actix_web::test]
+    async fn test_ttl() {
+        let db = get_test_db();
+        let query_service = QueryService::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys")
+            .set_json(&models::SetRequest {
+                key: "key3".to_string(),
+                value: models::IntOrString::String("value3".to_string()),
+                ttl: 2,
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        assert!(db.get(b"key3").unwrap().is_some());
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        assert!(db.get(b"key3").unwrap().is_none());
     }
 
     fn get_test_db() -> Database {
         let db_path = format!("/dev/shm/test_db_{}", rand::random::<i32>());
         let db = Database::open(db_path.as_str()).unwrap();
-        db.set(b"key1", b"value1").unwrap();
-        db.set(b"key2", b"value2").unwrap();
-        db.set(b"prefix_key1", b"value3").unwrap();
-        db.set(b"prefix_key2", b"value4").unwrap();
+
+        let value = &mut StorageValue {
+            value_type: ValueType::String,
+            ttl: -1,
+            value: "value1".as_bytes().to_vec(),
+        };
+        db.set(b"key1", value).unwrap();
+
+        value.value = "value2".as_bytes().to_vec();
+        db.set(b"key2", value).unwrap();
+
+        value.value = "value3".as_bytes().to_vec();
+        db.set(b"prefix_key1", value).unwrap();
+
+        value.value = "value4".as_bytes().to_vec();
+        db.set(b"prefix_key2", value).unwrap();
+
         return db;
     }
 }

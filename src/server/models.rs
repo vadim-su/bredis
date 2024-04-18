@@ -1,9 +1,25 @@
+use std::i64;
+
 use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum IntOrString {
+    Int(i64),
+    String(String),
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SetRequest {
     pub key: String,
-    pub value: String,
+    pub value: IntOrString,
+
+    #[serde(default = "default_ttl")]
+    pub ttl: i64,
+}
+
+fn default_ttl() -> i64 {
+    -1
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -13,7 +29,7 @@ pub struct DeleteKeysRequest {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GetResponse {
-    pub value: Option<String>,
+    pub value: Option<IntOrString>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
