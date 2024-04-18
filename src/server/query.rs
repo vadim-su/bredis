@@ -283,6 +283,94 @@ mod tests {
         assert!(db.get(b"key3").unwrap().is_none());
     }
 
+    #[actix_web::test]
+    async fn test_integer_value() {
+        let db = get_test_db();
+        let query_service = QueryService::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys")
+            .set_json(&models::SetRequest {
+                key: "key3".to_string(),
+                value: models::IntOrString::Int(123),
+                ttl: -1,
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let req = test::TestRequest::get().uri("/keys/key3").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::GetResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::GetResponse { value }) => {
+                let value = value.unwrap();
+                match value {
+                    models::IntOrString::Int(i) => assert_eq!(i, 123),
+                    _ => panic!("Unexpected value: {:?}", value),
+                }
+            }
+            _ => panic!("Unexpected response: {:?}", body),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_string_value() {
+        let db = get_test_db();
+        let query_service = QueryService::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys")
+            .set_json(&models::SetRequest {
+                key: "key3".to_string(),
+                value: models::IntOrString::String("value3".to_string()),
+                ttl: -1,
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let req = test::TestRequest::get().uri("/keys/key3").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::GetResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::GetResponse { value }) => {
+                let value = value.unwrap();
+                match value {
+                    models::IntOrString::String(s) => assert_eq!(s, "value3"),
+                    _ => panic!("Unexpected value: {:?}", value),
+                }
+            }
+            _ => panic!("Unexpected response: {:?}", body),
+        }
+    }
+
     fn get_test_db() -> Database {
         let db_path = format!("/dev/shm/test_db_{}", rand::random::<i32>());
         let db = Database::open(db_path.as_str()).unwrap();

@@ -363,6 +363,48 @@ mod tests {
         assert!(value.is_none());
     }
 
+    #[test]
+    fn test_integer_value() {
+        let db = get_test_db();
+
+        let value = &StorageValue {
+            value_type: ValueType::Integer,
+            ttl: -1,
+            value: b"123".to_vec(),
+        };
+        db.set(b"my_key", value).unwrap();
+
+        let value = db.get(b"my_key").unwrap().unwrap();
+        assert_eq!(
+            value.value_type,
+            ValueType::Integer,
+            "Value type is incorrect"
+        );
+        assert_eq!(value.value, b"123", "Value is incorrect");
+        assert_eq!(value.ttl, -1, "TTL is incorrect");
+    }
+
+    #[test]
+    fn test_string_value() {
+        let db = get_test_db();
+
+        let value = &StorageValue {
+            value_type: ValueType::String,
+            ttl: -1,
+            value: b"my_value".to_vec(),
+        };
+        db.set(b"my_key", value).unwrap();
+
+        let value = db.get(b"my_key").unwrap().unwrap();
+        assert_eq!(
+            value.value_type,
+            ValueType::String,
+            "Value type is incorrect"
+        );
+        assert_eq!(value.value, b"my_value", "Value is incorrect");
+        assert_eq!(value.ttl, -1, "TTL is incorrect");
+    }
+
     fn get_test_db() -> Database {
         let db_path = format!("/dev/shm/test_db_{}", rand::random::<i32>());
         let db = Database::open(db_path.as_str()).unwrap();
