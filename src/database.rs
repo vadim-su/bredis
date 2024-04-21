@@ -1,7 +1,7 @@
 use std::fs;
 use std::sync::Arc;
 
-use rocksdb::{Options, DB, DEFAULT_COLUMN_FAMILY_NAME};
+use rocksdb::{OptimisticTransactionDB, Options, Transaction, DB, DEFAULT_COLUMN_FAMILY_NAME};
 use serde::{Deserialize, Serialize};
 
 /// The byte value to search for the end of a prefix
@@ -32,7 +32,7 @@ const PREFIX_SEARCH_ENDING: u8 = 0xFF;
 /// * `store` - The RocksDB instance
 pub struct Database {
     path: String,
-    store: Arc<DB>,
+    store: Arc<OptimisticTransactionDB>,
 }
 
 impl Clone for Database {
@@ -68,7 +68,8 @@ impl Database {
 
         let mut options = Options::default();
         options.create_if_missing(true);
-        let store = DB::open_cf(&options, path, vec![DEFAULT_COLUMN_FAMILY_NAME])?;
+        let store =
+            OptimisticTransactionDB::open_cf(&options, path, vec![DEFAULT_COLUMN_FAMILY_NAME])?;
         return Ok(Self {
             path: path.to_string(),
             store: Arc::new(store),
@@ -77,7 +78,8 @@ impl Database {
 
     /// Close the database and remove the storage directory
     pub fn close(&self) {
-        fs::remove_dir_all(&self.path).unwrap_or_default();
+        DB::destroy(&Options::default(), &self.path).unwrap_or_default();
+        // fs::remove_dir_all(&self.path).unwrap_or_default();
     }
 
     /// Get the value for a key from the database
@@ -101,15 +103,15 @@ impl Database {
     /// }
     /// ```
     pub fn get(&self, key: &[u8]) -> Result<Option<StorageValue>, rocksdb::Error> {
-        let raw_value = self.store.get(key);
+        let txn = self.store.transaction();
+        let raw_value = txn.get(key);
         match raw_value {
             Ok(value) => match value {
                 Some(value) => {
                     let mut storage_value = StorageValue::from_binary(value.as_slice());
-
                     if storage_value.ttl > -1 {
                         storage_value.ttl = storage_value.ttl - chrono::Utc::now().timestamp();
-                        if self.delete_on_ttl(&storage_value)? {
+                        if self.delete_on_ttl(&txn, &storage_value)? {
                             return Ok(None);
                         }
                     }
@@ -131,14 +133,15 @@ impl Database {
     /// A Result containing a vector of keys or a RocksDB error
     pub fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, rocksdb::Error> {
         let mut keys = Vec::new();
-        let iter = self.store.prefix_iterator(prefix);
+        let txn = self.store.transaction();
+        let iter = txn.prefix_iterator(prefix);
         for result in iter {
             match result {
                 Ok((key, raw_value)) => {
                     let mut storage_value = StorageValue::from_binary(&raw_value);
                     if storage_value.ttl > -1 {
                         storage_value.ttl = storage_value.ttl - chrono::Utc::now().timestamp();
-                        if self.delete_on_ttl(&storage_value)? {
+                        if self.delete_on_ttl(&txn, &storage_value)? {
                             continue;
                         }
                     }
@@ -215,9 +218,13 @@ impl Database {
         fs::create_dir_all(path).unwrap();
     }
 
-    fn delete_on_ttl(&self, key: &StorageValue) -> Result<bool, rocksdb::Error> {
+    fn delete_on_ttl(
+        &self,
+        txn: &Transaction<OptimisticTransactionDB>,
+        key: &StorageValue,
+    ) -> Result<bool, rocksdb::Error> {
         if key.ttl <= 0 {
-            self.delete(key.value.as_slice())?;
+            txn.delete(key.value.as_slice())?;
             return Ok(true);
         }
         return Ok(false);
