@@ -1,3 +1,6 @@
+/// Core server logic.
+///
+/// I
 use std::sync::Arc;
 
 use actix_web::body::MessageBody;
@@ -6,9 +9,7 @@ use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 
 use crate::database::Database;
-use crate::server::info::InfoService;
-
-use super::query::QueryService;
+use crate::server::{docs, info, query};
 
 type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -22,8 +23,9 @@ impl Server {
         Self { db: Arc::new(db) }
     }
 
+    #[allow(clippy::future_not_send)]
     pub async fn serve(self, addr: String) -> Result<(), Error> {
-        HttpServer::new(move || self.clone().make_app::<actix_web::web::Bytes>())
+        HttpServer::new(move || self.clone().make_app())
             .bind(addr)?
             .run()
             .await?;
@@ -32,14 +34,15 @@ impl Server {
     }
 
     fn config(self, cfg: &mut web::ServiceConfig) {
-        cfg.configure(move |cfg| InfoService::new().config(cfg));
+        cfg.configure(move |cfg| info::Service::new().config(cfg));
         cfg.configure(move |cfg| {
-            let query_service = QueryService::new(self.db.clone());
+            let query_service = query::Service::new(self.db);
             query_service.config(cfg);
         });
+        cfg.configure(move |cfg| docs::Service::new().config(cfg));
     }
 
-    fn make_app<T: MessageBody>(
+    fn make_app(
         self,
     ) -> App<
         impl ServiceFactory<

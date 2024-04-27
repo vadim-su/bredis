@@ -2,6 +2,7 @@ use clap::{crate_authors, crate_name, Arg, Command};
 
 use crate::info::Info;
 
+#[allow(clippy::module_name_repetitions)]
 pub fn make_cli() -> Command {
     let info = Info::default();
 

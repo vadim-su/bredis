@@ -18,8 +18,8 @@ pub struct SetRequest {
     pub ttl: i64,
 }
 
-fn default_ttl() -> i64 {
-    -1
+const fn default_ttl() -> i64 {
+    return -1;
 }
 
 #[derive(Serialize, Deserialize, Debug)]

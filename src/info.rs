@@ -12,14 +12,11 @@ impl Default for Info {
         );
         let rustc = format!(
             "{}-{}",
-            env!("VERGEN_RUSTC_SEMVER").to_string(),
+            env!("VERGEN_RUSTC_SEMVER"),
             short_sha(env!("VERGEN_RUSTC_COMMIT_HASH"))
         );
 
-        return Info {
-            version: version,
-            rustc: rustc,
-        };
+        return Self { version, rustc };
     }
 }
 

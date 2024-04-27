@@ -1,3 +1,9 @@
+#![warn(clippy::pedantic)]
+#![warn(clippy::nursery)]
+#![warn(clippy::cargo)]
+#![deny(clippy::as_conversions)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::multiple_crate_versions)]
 use rand::random;
 
 mod cli;
@@ -16,15 +22,16 @@ async fn main() {
         let db_path = format!("/dev/shm/bredis{}", random::<i32>());
 
         let db_result = database::Database::open(db_path.as_str());
-        if let Err(e) = db_result {
-            eprintln!("Error opening database: {e}");
+        if let Err(err) = db_result {
+            eprintln!("Error opening database: {err}");
             return;
         }
         let bind: &String = cmd_args.get_one("bind").unwrap();
         let db = db_result.unwrap();
         let server = server::Server::new(db);
-        if let Err(e) = server.serve(bind.to_owned()).await {
-            eprintln!("Error serving: {e}");
+
+        if let Err(err) = server.serve(bind.to_owned()).await {
+            eprintln!("Error serving: {err}");
         }
     }
 }

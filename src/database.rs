@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 const PREFIX_SEARCH_ENDING: u8 = 0xFF;
 
 /// A struct to represent a Database
-/// This struct is used to interact with a RocksDB database (currently)
+/// This struct is used to interact with a `RocksDB` database (currently)
 ///
 /// In the future, this struct can be extended to support multiple storage backends.
 ///
@@ -29,7 +29,7 @@ const PREFIX_SEARCH_ENDING: u8 = 0xFF;
 ///
 /// # Fields
 /// * `path` - The path to the database
-/// * `store` - The RocksDB instance
+/// * `store` - The `RocksDB` instance
 pub struct Database {
     path: String,
     store: Arc<OptimisticTransactionDB>,
@@ -37,7 +37,7 @@ pub struct Database {
 
 impl Clone for Database {
     fn clone(&self) -> Self {
-        return Database {
+        return Self {
             path: self.path.clone(),
             store: self.store.clone(),
         };
@@ -51,13 +51,13 @@ impl Drop for Database {
 }
 
 impl Database {
-    /// Open a new RocksDB database at the specified path
+    /// Open a new `RocksDB` database at the specified path
     ///
     /// # Arguments
     /// * `path` - The path to the database
     ///
     /// # Returns
-    /// A Result containing the Database instance or a RocksDB error
+    /// A Result containing the Database instance or a `RocksDB` error
     ///
     /// # Example
     /// ```
@@ -79,7 +79,6 @@ impl Database {
     /// Close the database and remove the storage directory
     pub fn close(&self) {
         DB::destroy(&Options::default(), &self.path).unwrap_or_default();
-        // fs::remove_dir_all(&self.path).unwrap_or_default();
     }
 
     /// Get the value for a key from the database
@@ -110,7 +109,7 @@ impl Database {
                 Some(value) => {
                     let mut storage_value = StorageValue::from_binary(value.as_slice());
                     if storage_value.ttl > -1 {
-                        storage_value.ttl = storage_value.ttl - chrono::Utc::now().timestamp();
+                        storage_value.ttl -= chrono::Utc::now().timestamp();
                         if self.delete_on_ttl(&txn, &storage_value)? {
                             return Ok(None);
                         }
@@ -130,7 +129,7 @@ impl Database {
     /// * `prefix` - The prefix to filter keys by
     ///
     /// # Returns
-    /// A Result containing a vector of keys or a RocksDB error
+    /// A Result containing a vector of keys or a `RocksDB` error
     pub fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, rocksdb::Error> {
         let mut keys = Vec::new();
         let txn = self.store.transaction();
@@ -140,7 +139,7 @@ impl Database {
                 Ok((key, raw_value)) => {
                     let mut storage_value = StorageValue::from_binary(&raw_value);
                     if storage_value.ttl > -1 {
-                        storage_value.ttl = storage_value.ttl - chrono::Utc::now().timestamp();
+                        storage_value.ttl -= chrono::Utc::now().timestamp();
                         if self.delete_on_ttl(&txn, &storage_value)? {
                             continue;
                         }
@@ -172,7 +171,7 @@ impl Database {
         if value.ttl < 0 {
             value.ttl = -1;
         } else {
-            value.ttl = chrono::Utc::now().timestamp() + value.ttl;
+            value.ttl += chrono::Utc::now().timestamp();
         }
 
         return self.store.put(key, value.to_binary());
@@ -218,6 +217,7 @@ impl Database {
         fs::create_dir_all(path).unwrap();
     }
 
+    #[allow(clippy::unused_self)]
     fn delete_on_ttl(
         &self,
         txn: &Transaction<OptimisticTransactionDB>,
@@ -259,24 +259,24 @@ pub struct StorageValue {
 }
 
 impl StorageValue {
-    /// Create a new StorageValue instance
+    /// Create a new `StorageValue` instance
     /// # Returns
-    /// The StorageValue instance
+    /// The `StorageValue` instance
     pub fn to_binary(&self) -> Vec<u8> {
         return bincode::serialize(&self).unwrap();
     }
 
-    /// Create a new StorageValue instance from a binary representation
+    /// Create a new `StorageValue` instance from a binary representation
     /// # Arguments
-    /// * `data` - The binary representation of the StorageValue
+    /// * `data` - The binary representation of the `StorageValue`
     /// # Returns
-    /// The StorageValue instance
+    /// The `StorageValue` instance
     pub fn from_binary(data: &[u8]) -> Self {
         return bincode::deserialize(data).unwrap();
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ValueType {
     String,
     Integer,
@@ -419,17 +419,17 @@ mod tests {
         let value = &mut StorageValue {
             value_type: ValueType::String,
             ttl: -1,
-            value: "value1".as_bytes().to_vec(),
+            value: b"value1".to_vec(),
         };
         db.set(b"key1", value).unwrap();
 
-        value.value = "value2".as_bytes().to_vec();
+        value.value = b"value2".to_vec();
         db.set(b"key2", value).unwrap();
 
-        value.value = "value3".as_bytes().to_vec();
+        value.value = b"value3".to_vec();
         db.set(b"prefix_key1", value).unwrap();
 
-        value.value = "value4".as_bytes().to_vec();
+        value.value = b"value4".to_vec();
         db.set(b"prefix_key2", value).unwrap();
         return db;
     }

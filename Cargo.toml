@@ -1,23 +1,34 @@
 [package]
 name = "bredis"
+description = "Bredis is a simple Redish clone written in Rust."
 authors = ["Vadim Suharnikov <vsuharnikov[AT]gmail.com>"]
+repository = "https://github.com/vadim-su/bredis"
+license = "MIT"
+keywords = ["redis", "clone", "database", "server", "actix-web", "rocksdb"]
+categories = ["database", "network-programming"]
 version = "0.5.0"
 edition = "2021"
+
 build = "build.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 actix-web = { version = "4.5.1", features = ["rustls"] }
 clap = { version = "4.5.4", features = ["string", "cargo"] }
 env_logger = "0.11.3"
-rocksdb = { version = "0.22.0", features = ["multi-threaded-cf"], git = "https://github.com/vadim-su/rust-rocksdb.git" }
+rocksdb = { version = "0.22.0", features = [
+    "multi-threaded-cf",
+], git = "https://github.com/rust-rocksdb/rust-rocksdb.git" }
 serde = { version = "1.0.197", features = ["serde_derive"] }
 serde_json = "1.0.115"
 tokio = { version = "1.37.0", features = ["full"] }
 rand = "0.8.5"
 bincode = "1.3.3"
 chrono = "0.4.38"
+utoipa = { version = "4.2.0", features = ["actix_extras"] }
+utoipa-swagger-ui = { version = "6.0.0", features = ["actix-web"] }
+utoipa-redoc = { version = "3.0.0", features = ["actix-web"] }
+
 
 [build-dependencies]
 anyhow = "1.0.82"
@@ -29,3 +40,6 @@ vergen = { version = "8.3.1", features = [
     "rustc",
     "si",
 ] }
+
+[dev-dependencies]
+clippy = "0.0.302"

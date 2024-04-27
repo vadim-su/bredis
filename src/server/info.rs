@@ -2,32 +2,33 @@ use std::sync::Arc;
 
 use actix_web::{web, Responder};
 
-use super::models;
+use crate::server::models;
 
-pub struct InfoService {
+pub struct Service {
     info: crate::info::Info,
 }
 
 /// Represents the Info service.
 ///
 /// This service provides information about the server.
-impl InfoService {
-    /// Creates a new instance of the InfoService.
+impl Service {
+    /// Creates a new instance of the `InfoService`.
     ///
     /// # Returns
     ///
-    /// A new instance of the InfoService.
-    pub fn new() -> InfoService {
-        return InfoService {
+    /// A new instance of the `InfoService`.
+    #[must_use]
+    pub fn new() -> Self {
+        return Self {
             info: crate::info::Info::default(),
         };
     }
 
-    /// Configures the InfoService with the given ServiceConfig.
+    /// Configures the `InfoService` with the given `ServiceConfig`.
     ///
     /// # Arguments
     ///
-    /// * `cfg` - The ServiceConfig to configure.
+    /// * `cfg` - The `ServiceConfig` to configure.
     pub fn config(self, cfg: &mut web::ServiceConfig) {
         let self_clone = Arc::new(self);
         cfg.service(web::resource("/info").route(web::get().to(move || {

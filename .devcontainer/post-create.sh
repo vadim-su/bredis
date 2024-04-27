@@ -4,3 +4,4 @@
 
 apt update
 apt install libclang-dev -y
+pip install pre-commit

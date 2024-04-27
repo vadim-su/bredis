@@ -7,13 +7,14 @@ use crate::server::models;
 
 use super::models::GetResponse;
 
-pub struct QueryService {
+pub struct Service {
     db: Arc<Database>,
 }
 
-impl QueryService {
+impl Service {
+    #[must_use]
     pub fn new(db: Arc<Database>) -> Self {
-        QueryService { db }
+        Self { db }
     }
 
     pub fn config(&self, cfg: &mut web::ServiceConfig) {
@@ -50,15 +51,15 @@ impl QueryService {
                 }
                 ValueType::String => web::Json(models::ApiResponse::Success(models::GetResponse {
                     value: Some(models::IntOrString::String(
-                        String::from_utf8(sotre_value.value.clone()).unwrap(),
+                        String::from_utf8(sotre_value.value).unwrap(),
                     )),
                 })),
             },
             Ok(None) => web::Json(models::ApiResponse::Success(models::GetResponse {
                 value: None,
             })),
-            Err(e) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
-                error: format!("{}", e),
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
             })),
         };
     }
@@ -72,8 +73,8 @@ impl QueryService {
             Ok(keys) => web::Json(models::ApiResponse::Success(models::GetAllKeysResponse {
                 keys,
             })),
-            Err(e) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
-                error: format!("{}", e),
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
             })),
         };
     }
@@ -97,11 +98,11 @@ impl QueryService {
 
         let result = db.set(request.key.as_bytes(), &store_value);
         return match result {
-            Ok(_) => web::Json(models::ApiResponse::Success(
+            Ok(()) => web::Json(models::ApiResponse::Success(
                 models::OperationSuccessResponse { success: true },
             )),
-            Err(e) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
-                error: format!("{}", e),
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
             })),
         };
     }
@@ -112,11 +113,11 @@ impl QueryService {
     ) -> web::Json<models::ApiResponse<models::OperationSuccessResponse>> {
         let result = db.delete(key.as_bytes());
         return match result {
-            Ok(_) => web::Json(models::ApiResponse::Success(
+            Ok(()) => web::Json(models::ApiResponse::Success(
                 models::OperationSuccessResponse { success: true },
             )),
-            Err(e) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
-                error: format!("{}", e),
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
             })),
         };
     }
@@ -126,14 +127,14 @@ impl QueryService {
         request: web::Json<models::DeleteKeysRequest>,
     ) -> web::Json<models::ApiResponse<models::OperationSuccessResponse>> {
         match db.delete_prefix(request.prefix.as_bytes()) {
-            Ok(_) => {
+            Ok(()) => {
                 return web::Json(models::ApiResponse::Success(
                     models::OperationSuccessResponse { success: true },
                 ))
             }
-            Err(e) => {
+            Err(err) => {
                 return web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
-                    error: format!("{}", e),
+                    error: format!("{err}",),
                 }))
             }
         }
@@ -151,7 +152,7 @@ mod tests {
     #[actix_web::test]
     async fn test_get_value() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db));
+        let query_service = Service::new(Arc::new(db));
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::default().uri("/keys/key1").to_request();
         let resp = test::call_service(&app, req).await;
@@ -166,7 +167,7 @@ mod tests {
     #[actix_web::test]
     async fn test_get_all_keys() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db));
+        let query_service = Service::new(Arc::new(db));
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::default()
             .uri("/keys?prefix=prefix_")
@@ -186,18 +187,18 @@ mod tests {
             models::ApiResponse::Success(models::GetAllKeysResponse { keys }) => {
                 assert_eq!(keys.len(), 2);
             }
-            _ => panic!("Unexpected response: {:?}", body),
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
         }
     }
 
     #[actix_web::test]
     async fn test_set_key() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db.clone()));
+        let query_service = Service::new(Arc::new(db.clone()));
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::post()
             .uri("/keys")
-            .set_json(&models::SetRequest {
+            .set_json(models::SetRequest {
                 key: "key3".to_string(),
                 value: models::IntOrString::String("value3".to_string()),
                 ttl: -1,
@@ -215,7 +216,7 @@ mod tests {
     #[actix_web::test]
     async fn test_delete_key() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db.clone()));
+        let query_service = Service::new(Arc::new(db.clone()));
 
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::delete().uri("/keys/key1").to_request();
@@ -233,11 +234,11 @@ mod tests {
     #[actix_web::test]
     async fn test_delete_keys() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db.clone()));
+        let query_service = Service::new(Arc::new(db.clone()));
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::delete()
             .uri("/keys")
-            .set_json(&models::DeleteKeysRequest {
+            .set_json(models::DeleteKeysRequest {
                 prefix: "prefix_".to_string(),
             })
             .to_request();
@@ -257,11 +258,11 @@ mod tests {
     #[actix_web::test]
     async fn test_ttl() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db.clone()));
+        let query_service = Service::new(Arc::new(db.clone()));
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::post()
             .uri("/keys")
-            .set_json(&models::SetRequest {
+            .set_json(models::SetRequest {
                 key: "key3".to_string(),
                 value: models::IntOrString::String("value3".to_string()),
                 ttl: 2,
@@ -286,11 +287,11 @@ mod tests {
     #[actix_web::test]
     async fn test_integer_value() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db.clone()));
+        let query_service = Service::new(Arc::new(db.clone()));
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::post()
             .uri("/keys")
-            .set_json(&models::SetRequest {
+            .set_json(models::SetRequest {
                 key: "key3".to_string(),
                 value: models::IntOrString::Int(123),
                 ttl: -1,
@@ -320,21 +321,21 @@ mod tests {
                 let value = value.unwrap();
                 match value {
                     models::IntOrString::Int(i) => assert_eq!(i, 123),
-                    _ => panic!("Unexpected value: {:?}", value),
+                    models::IntOrString::String(_) => panic!("Unexpected value: {value:?}"),
                 }
             }
-            _ => panic!("Unexpected response: {:?}", body),
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
         }
     }
 
     #[actix_web::test]
     async fn test_string_value() {
         let db = get_test_db();
-        let query_service = QueryService::new(Arc::new(db.clone()));
+        let query_service = Service::new(Arc::new(db.clone()));
         let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
         let req = test::TestRequest::post()
             .uri("/keys")
-            .set_json(&models::SetRequest {
+            .set_json(models::SetRequest {
                 key: "key3".to_string(),
                 value: models::IntOrString::String("value3".to_string()),
                 ttl: -1,
@@ -364,10 +365,10 @@ mod tests {
                 let value = value.unwrap();
                 match value {
                     models::IntOrString::String(s) => assert_eq!(s, "value3"),
-                    _ => panic!("Unexpected value: {:?}", value),
+                    models::IntOrString::Int(_) => panic!("Unexpected value: {value:?}"),
                 }
             }
-            _ => panic!("Unexpected response: {:?}", body),
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
         }
     }
 
@@ -378,17 +379,17 @@ mod tests {
         let value = &mut StorageValue {
             value_type: ValueType::String,
             ttl: -1,
-            value: "value1".as_bytes().to_vec(),
+            value: b"value1".to_vec(),
         };
         db.set(b"key1", value).unwrap();
 
-        value.value = "value2".as_bytes().to_vec();
+        value.value = b"value2".to_vec();
         db.set(b"key2", value).unwrap();
 
-        value.value = "value3".as_bytes().to_vec();
+        value.value = b"value3".to_vec();
         db.set(b"prefix_key1", value).unwrap();
 
-        value.value = "value4".as_bytes().to_vec();
+        value.value = b"value4".to_vec();
         db.set(b"prefix_key2", value).unwrap();
 
         return db;
