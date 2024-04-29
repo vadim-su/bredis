@@ -64,3 +64,27 @@ pub struct InfoResponse {
     pub version: String,
     pub rustc: String,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct IncrementRequest {
+    pub value: i64,
+    #[serde(default)]
+    pub default: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct IncrementResponse {
+    pub value: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DecrementRequest {
+    pub value: i64,
+    #[serde(default)]
+    pub default: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DecrementResponse {
+    pub value: i64,
+}

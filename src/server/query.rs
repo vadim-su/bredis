@@ -29,7 +29,9 @@ impl Service {
                 web::resource("/{key_name}")
                     .route(web::get().to(Self::get_by_key))
                     .route(web::delete().to(Self::delete_key)),
-            );
+            )
+            .service(web::resource("/{key_name}/inc").route(web::post().to(Self::increment)))
+            .service(web::resource("/{key_name}/dec").route(web::post().to(Self::decrement)));
 
         cfg.app_data(web::Data::new(self.db.clone()))
             .service(scoped_services);
@@ -139,6 +141,50 @@ impl Service {
             }
         }
     }
+
+    pub async fn increment(
+        db: web::Data<Arc<Database>>,
+        key: web::Path<String>,
+        request: web::Json<models::IncrementRequest>,
+    ) -> web::Json<models::ApiResponse<models::IncrementResponse>> {
+        let store_value_result = db.increment(key.as_bytes(), request.value, request.default);
+        if store_value_result.is_err() {
+            return web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}", err = store_value_result.err().unwrap()),
+            }));
+        }
+
+        return match store_value_result.unwrap().get_integer_value() {
+            Ok(value) => web::Json(models::ApiResponse::Success(models::IncrementResponse {
+                value,
+            })),
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
+            })),
+        };
+    }
+
+    pub async fn decrement(
+        db: web::Data<Arc<Database>>,
+        key: web::Path<String>,
+        request: web::Json<models::IncrementRequest>,
+    ) -> web::Json<models::ApiResponse<models::IncrementResponse>> {
+        let store_value_result = db.decrement(key.as_bytes(), request.value, request.default);
+        if store_value_result.is_err() {
+            return web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}", err = store_value_result.err().unwrap()),
+            }));
+        }
+
+        return match store_value_result.unwrap().get_integer_value() {
+            Ok(value) => web::Json(models::ApiResponse::Success(models::IncrementResponse {
+                value,
+            })),
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
+            })),
+        };
+    }
 }
 
 #[cfg(test)]
@@ -185,7 +231,7 @@ mod tests {
 
         match body {
             models::ApiResponse::Success(models::GetAllKeysResponse { keys }) => {
-                assert_eq!(keys.len(), 2);
+                assert_eq!(keys.len(), 3);
             }
             models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
         }
@@ -372,6 +418,186 @@ mod tests {
         }
     }
 
+    #[actix_web::test]
+    async fn test_increment() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys/value_num/inc")
+            .set_json(models::IncrementRequest {
+                value: 1,
+                default: None,
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::IncrementResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::IncrementResponse { value }) => {
+                assert_eq!(value, 2);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_default_increment() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys/value_num/inc")
+            .set_json(models::IncrementRequest {
+                value: 1,
+                default: Some(10),
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::IncrementResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::IncrementResponse { value }) => {
+                assert_eq!(value, 2);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_default_exist_increment() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys/new_value_num/inc")
+            .set_json(models::IncrementRequest {
+                value: 1,
+                default: Some(10),
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::IncrementResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::IncrementResponse { value }) => {
+                assert_eq!(value, 11);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_decrement() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys/value_num/dec")
+            .set_json(models::IncrementRequest {
+                value: 1,
+                default: None,
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::IncrementResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::IncrementResponse { value }) => {
+                assert_eq!(value, 0);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_default_decrement() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys/new_value_num/dec")
+            .set_json(models::IncrementRequest {
+                value: 1,
+                default: Some(10),
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::IncrementResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::IncrementResponse { value }) => {
+                assert_eq!(value, 9);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_default_exist_decrement() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys/value_num/dec")
+            .set_json(models::IncrementRequest {
+                value: 1,
+                default: Some(10),
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::IncrementResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::IncrementResponse { value }) => {
+                assert_eq!(value, 0);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
     fn get_test_db() -> Database {
         let db_path = format!("/dev/shm/test_db_{}", rand::random::<i32>());
         let db = Database::open(db_path.as_str()).unwrap();
@@ -391,6 +617,13 @@ mod tests {
 
         value.value = b"value4".to_vec();
         db.set(b"prefix_key2", value).unwrap();
+
+        let value = &mut StorageValue {
+            value_type: ValueType::Integer,
+            ttl: -1,
+            value: b"1".to_vec(),
+        };
+        db.set(b"value_num", value).unwrap();
 
         return db;
     }

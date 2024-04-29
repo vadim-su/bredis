@@ -4,10 +4,12 @@
 #![deny(clippy::as_conversions)]
 #![allow(clippy::needless_return)]
 #![allow(clippy::multiple_crate_versions)]
+use log::{debug, error};
 use rand::random;
 
 mod cli;
 mod database;
+mod errors;
 pub(crate) mod info;
 mod server;
 
@@ -19,11 +21,13 @@ async fn main() {
     let matches = cli::make_cli().get_matches();
 
     if let Some(cmd_args) = matches.subcommand_matches("run") {
-        let db_path = format!("/dev/shm/bredis{}", random::<i32>());
+        let db_path = format!("/dev/shm/bredis_{}", random::<i32>());
+
+        debug!("Using database path: {db_path}");
 
         let db_result = database::Database::open(db_path.as_str());
         if let Err(err) = db_result {
-            eprintln!("Error opening database: {err}");
+            error!("Error opening database: {err}");
             return;
         }
         let bind: &String = cmd_args.get_one("bind").unwrap();
@@ -31,7 +35,7 @@ async fn main() {
         let server = server::Server::new(db);
 
         if let Err(err) = server.serve(bind.to_owned()).await {
-            eprintln!("Error serving: {err}");
+            error!("Error serving: {err}");
         }
     }
 }

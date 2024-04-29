@@ -1,6 +1,6 @@
 /// Core server logic.
 ///
-/// I
+/// I have implemented the core server logic in this module, because to keep mod.rs clean.
 use std::sync::Arc;
 
 use actix_web::body::MessageBody;
@@ -9,9 +9,8 @@ use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 
 use crate::database::Database;
+use crate::errors::Error;
 use crate::server::{docs, info, query};
-
-type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 #[derive(Clone)]
 pub struct Server {
@@ -25,6 +24,7 @@ impl Server {
 
     #[allow(clippy::future_not_send)]
     pub async fn serve(self, addr: String) -> Result<(), Error> {
+        log::info!("Starting server on: {addr}");
         HttpServer::new(move || self.clone().make_app())
             .bind(addr)?
             .run()
