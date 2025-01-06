@@ -1,7 +1,8 @@
-#! /bin/env bash
+#! /usr/bin/env bash
 
 # Install libraries
 
-apt update
-apt install libclang-dev -y
-pip install pre-commit
+sudo apt update
+sudo apt install libclang-dev -y
+sudo apt install python3-pip -y
+sudo pip install pre-commit

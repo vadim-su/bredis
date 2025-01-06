@@ -8,7 +8,7 @@ impl Default for Info {
         let version = format!(
             "{}-{}",
             env!("CARGO_PKG_VERSION"),
-            short_sha(env!("VERGEN_GIT_SHA")),
+            short_sha(env!("VERGEN_RUSTC_COMMIT_HASH")),
         );
         let rustc = format!(
             "{}-{}",
