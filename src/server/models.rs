@@ -24,6 +24,7 @@ const fn default_ttl() -> i64 {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeleteKeysRequest {
+    #[serde(default)]
     pub prefix: String,
 }
 
@@ -87,4 +88,9 @@ pub struct DecrementRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DecrementResponse {
     pub value: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetTtlResponse {
+    pub ttl: i64,
 }

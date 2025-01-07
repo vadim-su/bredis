@@ -18,8 +18,8 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(db: Database) -> Self {
-        Self { db: Arc::new(db) }
+    pub const fn new(db: Arc<Database>) -> Self {
+        Self { db }
     }
 
     #[allow(clippy::future_not_send)]

@@ -16,30 +16,45 @@ bredis run
 ## API
 ### GET
 ```bash
-curl http://localhost:8080/keys/mykey
+curl http://localhost:4123/keys/mykey
 ```
 
 ### GET BY PREFIX
 ```bash
-curl http://localhost:8080/keys?prefix=my
+curl http://localhost:4123/keys?prefix=my
 ```
 
 ### SET
 ```bash
-curl -X POST -d "{\"key\":\"mykey\",\"value\":\"myvalue\"}" http://localhost:8080/keys
+curl -X POST -H "Content-Type: application/json" -d "{\"key\":\"mykey\",\"value\":\"myvalue\"}" http://localhost:4123/keys
+```
+
+### SET WITH EXPIRATION
+```bash
+curl -X POST -H "Content-Type: application/json" -d "{\"key\":\"mykey\",\"value\":\"myvalue\",\"ttl\":10}" http://localhost:4123/keys
 ```
 
 ### DELETE
 ```bash
-curl -X DELETE http://localhost:8080/keys/mykey
+curl -X DELETE http://localhost:4123/keys/mykey
 ```
 
 ### DELETE BY PREFIX
 ```bash
-curl -X DELETE -d "{\"prefix\":\"my\"}" http://localhost:8080/keys
+curl -X DELETE -H "Content-Type: application/json" -d "{\"prefix\":\"my\"}" http://localhost:4123/keys
+```
+
+### FLUSH
+```bash
+curl -X DELETE http://localhost:4123/keys
+```
+
+### GET TTL
+```bash
+curl http://localhost:4123/keys/mykey/ttl
 ```
 
 ## ROADMAP
-- [ ] Add EXPIRE and TTL operations
+- [X] Add EXPIRE and TTL operations
 - [ ] Add pure in-memory rust backend
 - [ ] Support stream protocol (websocks, protobuf, resp?)

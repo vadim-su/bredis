@@ -155,6 +155,54 @@ impl Database {
         return Ok(keys);
     }
 
+    /// Get the time-to-live (TTL) for a key
+    ///
+    /// # Arguments
+    /// * `key` - The key to get the TTL for
+    ///
+    /// # Returns
+    /// A Result containing the TTL or a `RocksDB` error
+    ///
+    /// # Example
+    /// ```
+    /// let db = Database::open("/dev/shm/my_storage").unwrap();
+    /// let ttl = db.get_ttl(b"my_key").unwrap();
+    /// ```
+    ///
+    /// # Errors
+    /// If the key is not found, a `DatabaseError::ValueNotFound` error is returned
+    /// If there is an error getting the value, a `DatabaseError` is returned
+    pub fn get_ttl(&self, key: &[u8]) -> Result<i64, DatabaseError> {
+        let txn = self.store.transaction();
+        let raw_value = txn.get(key);
+        match raw_value {
+            Ok(value) => match value {
+                Some(value) => {
+                    let storage_value = StorageValue::from_binary(value.as_slice());
+                    if storage_value.ttl <= 0 {
+                        return Ok(storage_value.ttl);
+                    }
+
+                    let ttl = storage_value.ttl - chrono::Utc::now().timestamp();
+                    if ttl > 0 {
+                        return Ok(ttl);
+                    }
+
+                    self.delete(key)?;
+                    return Err(DatabaseError::ValueNotFound(
+                        String::from_utf8_lossy(key).to_string(),
+                    ));
+                }
+                None => {
+                    return Err(DatabaseError::ValueNotFound(
+                        String::from_utf8_lossy(key).to_string(),
+                    ))
+                }
+            },
+            Err(err) => return Err(err.into()),
+        }
+    }
+
     /// Set the value for a key in the database
     ///
     /// # Arguments
@@ -469,6 +517,55 @@ mod tests {
         assert_eq!(keys.len(), 3);
         assert!(keys.contains(&String::from("prefix_key1")));
         assert!(keys.contains(&String::from("prefix_key2")));
+    }
+
+    #[test]
+    fn test_get_ttl() {
+        let db = get_test_db();
+
+        let value = &StorageValue {
+            value_type: ValueType::String,
+            ttl: 1000,
+            value: b"my_value".to_vec(),
+        };
+        db.set(b"my_key", value).unwrap();
+
+        let ttl = db.get_ttl(b"my_key").unwrap();
+        assert_eq!(ttl, 1000, "TTL is incorrect");
+
+        let ttl = db.get_ttl(b"non_existent_key");
+        assert!(ttl.is_err(), "Expected error for non-existent key");
+    }
+
+    #[test]
+    fn test_get_ttl_no_ttl() {
+        let db = get_test_db();
+
+        let value = &StorageValue {
+            value_type: ValueType::String,
+            ttl: -1,
+            value: b"my_value".to_vec(),
+        };
+        db.set(b"my_key", value).unwrap();
+
+        let ttl = db.get_ttl(b"my_key").unwrap();
+        assert_eq!(ttl, -1, "TTL is incorrect");
+    }
+
+    #[test]
+    fn test_get_ttl_expired() {
+        let db = get_test_db();
+
+        let value = &StorageValue {
+            value_type: ValueType::String,
+            ttl: 1,
+            value: b"my_value".to_vec(),
+        };
+        db.set(b"my_key", value).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let ttl = db.get_ttl(b"my_key");
+        assert!(ttl.is_err(), "Expected error for expired key");
     }
 
     #[test]

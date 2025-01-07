@@ -13,7 +13,7 @@ pub struct Service {
 
 impl Service {
     #[must_use]
-    pub fn new(db: Arc<Database>) -> Self {
+    pub const fn new(db: Arc<Database>) -> Self {
         Self { db }
     }
 
@@ -31,7 +31,8 @@ impl Service {
                     .route(web::delete().to(Self::delete_key)),
             )
             .service(web::resource("/{key_name}/inc").route(web::post().to(Self::increment)))
-            .service(web::resource("/{key_name}/dec").route(web::post().to(Self::decrement)));
+            .service(web::resource("/{key_name}/dec").route(web::post().to(Self::decrement)))
+            .service(web::resource("/{key_name}/ttl").route(web::get().to(Self::get_ttl)));
 
         cfg.app_data(web::Data::new(self.db.clone()))
             .service(scoped_services);
@@ -126,9 +127,14 @@ impl Service {
 
     pub async fn delete_keys(
         db: web::Data<Arc<Database>>,
-        request: web::Json<models::DeleteKeysRequest>,
+        request: Option<web::Json<models::DeleteKeysRequest>>,
     ) -> web::Json<models::ApiResponse<models::OperationSuccessResponse>> {
-        match db.delete_prefix(request.prefix.as_bytes()) {
+        let prefix = match request {
+            None => String::new(),
+            Some(request) => request.prefix.clone(),
+        };
+
+        match db.delete_prefix(prefix.as_bytes()) {
             Ok(()) => {
                 return web::Json(models::ApiResponse::Success(
                     models::OperationSuccessResponse { success: true },
@@ -140,6 +146,24 @@ impl Service {
                 }))
             }
         }
+    }
+
+    pub async fn get_ttl(
+        db: web::Data<Arc<Database>>,
+        key: web::Path<String>,
+    ) -> web::Json<models::ApiResponse<models::GetTtlResponse>> {
+        let ttl = db.get_ttl(key.as_bytes());
+        return match ttl {
+            Ok(ttl) => web::Json(models::ApiResponse::Success(models::GetTtlResponse { ttl })),
+            Err(crate::errors::DatabaseError::ValueNotFound(_)) => {
+                web::Json(models::ApiResponse::Success(models::GetTtlResponse {
+                    ttl: -1,
+                }))
+            }
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
+            })),
+        };
     }
 
     pub async fn increment(
@@ -593,6 +617,98 @@ mod tests {
         match body {
             models::ApiResponse::Success(models::IncrementResponse { value }) => {
                 assert_eq!(value, 0);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_get_ttl() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::get().uri("/keys/key1/ttl").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::GetTtlResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::GetTtlResponse { ttl }) => {
+                assert_eq!(ttl, -1);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_get_ttl_nonexistent_key() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::get()
+            .uri("/keys/nonexistent_key/ttl")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::GetTtlResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::GetTtlResponse { ttl }) => {
+                assert_eq!(ttl, -1);
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_set_key_with_ttl() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys")
+            .set_json(models::SetRequest {
+                key: "key_with_ttl".to_string(),
+                value: models::IntOrString::String("value_with_ttl".to_string()),
+                ttl: 5,
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let req = test::TestRequest::get()
+            .uri("/keys/key_with_ttl/ttl")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::GetTtlResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::GetTtlResponse { ttl }) => {
+                assert!(ttl <= 5 && ttl >= 0);
             }
             models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
         }
