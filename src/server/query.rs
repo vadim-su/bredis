@@ -32,7 +32,11 @@ impl Service {
             )
             .service(web::resource("/{key_name}/inc").route(web::post().to(Self::increment)))
             .service(web::resource("/{key_name}/dec").route(web::post().to(Self::decrement)))
-            .service(web::resource("/{key_name}/ttl").route(web::get().to(Self::get_ttl)));
+            .service(
+                web::resource("/{key_name}/ttl")
+                    .route(web::get().to(Self::get_ttl))
+                    .route(web::post().to(Self::set_ttl)),
+            );
 
         cfg.app_data(web::Data::new(self.db.clone()))
             .service(scoped_services);
@@ -160,6 +164,22 @@ impl Service {
                     ttl: -1,
                 }))
             }
+            Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
+                error: format!("{err}"),
+            })),
+        };
+    }
+
+    pub async fn set_ttl(
+        db: web::Data<Arc<Database>>,
+        key: web::Path<String>,
+        request: web::Json<models::SetTtlRequest>,
+    ) -> web::Json<models::ApiResponse<models::OperationSuccessResponse>> {
+        let result = db.update_ttl(key.as_bytes(), request.ttl);
+        return match result {
+            Ok(()) => web::Json(models::ApiResponse::Success(
+                models::OperationSuccessResponse { success: true },
+            )),
             Err(err) => web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
                 error: format!("{err}"),
             })),
@@ -696,6 +716,42 @@ mod tests {
         let req = test::TestRequest::get()
             .uri("/keys/key_with_ttl/ttl")
             .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let body: models::ApiResponse<models::GetTtlResponse> = test::read_body_json(resp).await;
+
+        match body {
+            models::ApiResponse::Success(models::GetTtlResponse { ttl }) => {
+                assert!((0..=5).contains(&ttl));
+            }
+            models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_set_ttl() {
+        let db = get_test_db();
+        let query_service = Service::new(Arc::new(db.clone()));
+        let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+        let req = test::TestRequest::post()
+            .uri("/keys/key1/ttl")
+            .set_json(models::SetTtlRequest { ttl: 5 })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "{:?}: {:?}",
+            resp,
+            resp.response().body()
+        );
+
+        let req = test::TestRequest::get().uri("/keys/key1/ttl").to_request();
         let resp = test::call_service(&app, req).await;
         assert!(
             resp.status().is_success(),

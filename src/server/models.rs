@@ -92,3 +92,8 @@ pub struct DecrementResponse {
 pub struct GetTtlResponse {
     pub ttl: i64,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SetTtlRequest {
+    pub ttl: i64,
+}

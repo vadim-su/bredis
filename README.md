@@ -54,6 +54,16 @@ curl -X DELETE http://localhost:4123/keys
 curl http://localhost:4123/keys/mykey/ttl
 ```
 
+### SET TTL
+```bash
+curl -X POST -H "Content-Type: application/json" -d "{\"key\":\"mykey\",\"ttl\":10}" http://localhost:4123/keys/ttl
+```
+
+### DELETE TTL
+```bash
+curl -X POST -H "Content-Type: application/json" -d "{\"key\":\"mykey, \"ttl\":-1}" http://localhost:4123/keys/ttl
+```
+
 ## ROADMAP
 - [X] Add EXPIRE and TTL operations
 - [ ] Add pure in-memory rust backend

@@ -203,6 +203,41 @@ impl Database {
         }
     }
 
+    /// Update the time-to-live (TTL) for a key
+    /// If the TTL is set to a negative value, the key will not expire
+    ///
+    /// # Arguments
+    /// * `key` - The key to update the TTL for
+    /// * `ttl` - The new TTL value
+    ///
+    /// # Returns
+    /// A Result containing `()` or a `DatabaseError`
+    ///
+    /// # Example
+    /// ```
+    /// let db = Database::open("/dev/shm/my_storage").unwrap();
+    /// db.update_ttl(b"my_key", 1000);
+    /// ```
+    pub fn update_ttl(&self, key: &[u8], ttl: i64) -> Result<(), DatabaseError> {
+        let txn = self.store.transaction();
+        let raw_value = txn.get(key)?;
+        if let Some(value) = raw_value {
+            let mut storage_value = StorageValue::from_binary(value.as_slice());
+            if ttl < 0 {
+                storage_value.ttl = -1;
+            } else {
+                storage_value.ttl = ttl + chrono::Utc::now().timestamp();
+            };
+            txn.put(key, storage_value.to_binary())?;
+            txn.commit()?;
+            Ok(())
+        } else {
+            Err(DatabaseError::ValueNotFound(
+                String::from_utf8_lossy(key).to_string(),
+            ))
+        }
+    }
+
     /// Set the value for a key in the database
     ///
     /// # Arguments
@@ -566,6 +601,29 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(2));
         let ttl = db.get_ttl(b"my_key");
         assert!(ttl.is_err(), "Expected error for expired key");
+    }
+
+    #[test]
+    fn test_update_ttl() {
+        let db = get_test_db();
+
+        let value = &StorageValue {
+            value_type: ValueType::String,
+            ttl: 1000,
+            value: b"my_value".to_vec(),
+        };
+        db.set(b"my_key", value).unwrap();
+
+        let ttl = db.get_ttl(b"my_key").unwrap();
+        assert_eq!(ttl, 1000, "TTL is incorrect");
+
+        db.update_ttl(b"my_key", 2000).unwrap();
+        let ttl = db.get_ttl(b"my_key").unwrap();
+        assert_eq!(ttl, 2000, "TTL is incorrect");
+
+        db.update_ttl(b"my_key", -1).unwrap();
+        let ttl = db.get_ttl(b"my_key").unwrap();
+        assert_eq!(ttl, -1, "TTL is incorrect");
     }
 
     #[test]
