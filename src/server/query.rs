@@ -708,7 +708,7 @@ mod tests {
 
         match body {
             models::ApiResponse::Success(models::GetTtlResponse { ttl }) => {
-                assert!(ttl <= 5 && ttl >= 0);
+                assert!((0..=5).contains(&ttl));
             }
             models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
         }

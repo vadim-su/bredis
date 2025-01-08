@@ -27,6 +27,7 @@ async fn main() {
     }
 }
 
+#[allow(clippy::future_not_send)]
 async fn run(bind: &str) {
     let db_path = format!("/dev/shm/bredis_{}", random::<i32>());
 
