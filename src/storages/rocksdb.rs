@@ -2,9 +2,11 @@ use std::fs;
 use std::sync::Arc;
 
 use rocksdb::{OptimisticTransactionDB, Options, Transaction, DB, DEFAULT_COLUMN_FAMILY_NAME};
-use serde::{Deserialize, Serialize};
 
 use crate::errors::DatabaseError;
+use crate::storages::storage::Storage;
+
+use super::value::{StorageValue, ValueType};
 
 /// The byte value to search for the end of a prefix
 const PREFIX_SEARCH_ENDING: u8 = 0xFF;
@@ -32,12 +34,12 @@ const PREFIX_SEARCH_ENDING: u8 = 0xFF;
 /// # Fields
 /// * `path` - The path to the database
 /// * `store` - The `RocksDB` instance
-pub struct Database {
+pub struct Rocksdb {
     path: String,
     store: Arc<OptimisticTransactionDB>,
 }
 
-impl Clone for Database {
+impl Clone for Rocksdb {
     fn clone(&self) -> Self {
         return Self {
             path: self.path.clone(),
@@ -46,13 +48,13 @@ impl Clone for Database {
     }
 }
 
-impl Drop for Database {
+impl Drop for Rocksdb {
     fn drop(&mut self) {
         self.close();
     }
 }
 
-impl Database {
+impl Rocksdb {
     /// Open a new `RocksDB` database at the specified path
     ///
     /// # Arguments
@@ -78,8 +80,32 @@ impl Database {
         });
     }
 
+    /// Prepare the storage location by removing the directory and creating a new one
+    ///
+    /// # Arguments
+    /// * `path` - The path to the storage location
+    ///
+    /// # Returns
+    /// A Result containing `()` or a `DatabaseError`
+    ///
+    /// # Example
+    /// ```
+    /// let result = Database::prepare_store_location("/dev/shm/my_storage");
+    /// result.unwrap();
+    /// ```
+    fn prepare_store_location(path: &str) -> Result<(), DatabaseError> {
+        fs::remove_dir_all(path).unwrap_or_default();
+
+        match fs::create_dir_all(path) {
+            Ok(()) => return Ok(()),
+            Err(err) => return Err(DatabaseError::InitialFailed(err.to_string())),
+        }
+    }
+}
+
+impl Storage for Rocksdb {
     /// Close the database and remove the storage directory
-    pub fn close(&self) {
+    fn close(&self) {
         DB::destroy(&Options::default(), &self.path).unwrap_or_default();
     }
 
@@ -101,7 +127,7 @@ impl Database {
     ///     println!("Value not found");
     /// }
     /// ```
-    pub fn get(&self, key: &[u8]) -> Result<Option<StorageValue>, DatabaseError> {
+    fn get(&self, key: &[u8]) -> Result<Option<StorageValue>, DatabaseError> {
         let txn = self.store.transaction();
         let raw_value = txn.get(key);
         match raw_value {
@@ -110,7 +136,7 @@ impl Database {
                     let mut storage_value = StorageValue::from_binary(value.as_slice());
                     if storage_value.ttl > -1 {
                         storage_value.ttl -= chrono::Utc::now().timestamp();
-                        if Self::delete_on_ttl(&txn, &storage_value)? {
+                        if self.delete_on_ttl(&txn, &storage_value)? {
                             return Ok(None);
                         }
                     }
@@ -130,7 +156,7 @@ impl Database {
     ///
     /// # Returns
     /// A Result containing a vector of keys or a `RocksDB` error
-    pub fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, DatabaseError> {
+    fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, DatabaseError> {
         let mut keys = Vec::new();
         let txn = self.store.transaction();
         let iter = txn.prefix_iterator(prefix);
@@ -140,7 +166,7 @@ impl Database {
                     let mut storage_value = StorageValue::from_binary(&raw_value);
                     if storage_value.ttl > -1 {
                         storage_value.ttl -= chrono::Utc::now().timestamp();
-                        if Self::delete_on_ttl(&txn, &storage_value)? {
+                        if self.delete_on_ttl(&txn, &storage_value)? {
                             continue;
                         }
                     }
@@ -172,7 +198,7 @@ impl Database {
     /// # Errors
     /// If the key is not found, a `DatabaseError::ValueNotFound` error is returned
     /// If there is an error getting the value, a `DatabaseError` is returned
-    pub fn get_ttl(&self, key: &[u8]) -> Result<i64, DatabaseError> {
+    fn get_ttl(&self, key: &[u8]) -> Result<i64, DatabaseError> {
         let txn = self.store.transaction();
         let raw_value = txn.get(key);
         match raw_value {
@@ -218,7 +244,7 @@ impl Database {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.update_ttl(b"my_key", 1000);
     /// ```
-    pub fn update_ttl(&self, key: &[u8], ttl: i64) -> Result<(), DatabaseError> {
+    fn update_ttl(&self, key: &[u8], ttl: i64) -> Result<(), DatabaseError> {
         let txn = self.store.transaction();
         let raw_value = txn.get(key)?;
         if let Some(value) = raw_value {
@@ -249,7 +275,7 @@ impl Database {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.set(b"my_key", b"my_value");
     /// ```
-    pub fn set(&self, key: &[u8], value: &StorageValue) -> Result<(), DatabaseError> {
+    fn set(&self, key: &[u8], value: &StorageValue) -> Result<(), DatabaseError> {
         let mut value = value.clone();
         if value.ttl < 0 {
             value.ttl = -1;
@@ -263,7 +289,7 @@ impl Database {
         }
     }
 
-    pub fn increment(
+    fn increment(
         &self,
         key: &[u8],
         value: i64,
@@ -310,7 +336,7 @@ impl Database {
         return Ok(storage_value);
     }
 
-    pub fn decrement(
+    fn decrement(
         &self,
         key: &[u8],
         value: i64,
@@ -367,7 +393,7 @@ impl Database {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.delete(b"my_key");
     /// ```
-    pub fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
+    fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
         match self.store.delete(key) {
             Ok(()) => return Ok(()),
             Err(err) => return Err(err.into()),
@@ -384,7 +410,7 @@ impl Database {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.delete_prefix(b"my_prefix");
     /// ```
-    pub fn delete_prefix(&self, prefix: &[u8]) -> Result<(), DatabaseError> {
+    fn delete_prefix(&self, prefix: &[u8]) -> Result<(), DatabaseError> {
         let mut end_prefix = prefix.to_vec();
         end_prefix.push(PREFIX_SEARCH_ENDING);
         let cf = self.store.cf_handle(DEFAULT_COLUMN_FAMILY_NAME);
@@ -400,28 +426,6 @@ impl Database {
         }
     }
 
-    /// Prepare the storage location by removing the directory and creating a new one
-    ///
-    /// # Arguments
-    /// * `path` - The path to the storage location
-    ///
-    /// # Returns
-    /// A Result containing `()` or a `DatabaseError`
-    ///
-    /// # Example
-    /// ```
-    /// let result = Database::prepare_store_location("/dev/shm/my_storage");
-    /// result.unwrap();
-    /// ```
-    fn prepare_store_location(path: &str) -> Result<(), DatabaseError> {
-        fs::remove_dir_all(path).unwrap_or_default();
-
-        match fs::create_dir_all(path) {
-            Ok(()) => return Ok(()),
-            Err(err) => return Err(DatabaseError::InitialFailed(err.to_string())),
-        }
-    }
-
     /// Delete a key-value pair from the database if the TTL has expired
     /// # Arguments
     /// * `txn` - The transaction to use
@@ -429,6 +433,7 @@ impl Database {
     /// # Returns
     /// A Result containing a boolean indicating if the key was deleted or a `RocksDB` error
     fn delete_on_ttl(
+        &self,
         txn: &Transaction<OptimisticTransactionDB>,
         key: &StorageValue,
     ) -> Result<bool, DatabaseError> {
@@ -440,108 +445,10 @@ impl Database {
     }
 }
 
-/// A struct to represent a value in the database
-/// This struct is used to store the value type and the time-to-live (TTL) for the value
-/// The value is stored as a byte array
-/// The struct can be serialized and deserialized to/from a binary representation
-///
-/// # Example
-/// ```
-/// let storage_value = StorageValue {
-///   value_type: ValueType::String,
-///   ttl: 1000,
-///   value: b"my_value".to_vec(),
-/// };
-/// let binary = storage_value.to_binary();
-/// let storage_value = StorageValue::from_binary(&binary);
-/// ```
-///
-/// # Fields
-/// * `value_type` - The type of the value
-/// * `ttl` - The time-to-live (TTL) for the value
-/// * `value` - The value as a byte array
-#[derive(Clone, Serialize, Deserialize)]
-pub struct StorageValue {
-    pub value_type: ValueType,
-    pub ttl: i64,
-    pub value: Vec<u8>,
-}
-
-impl StorageValue {
-    /// Create a new `StorageValue` instance
-    /// # Returns
-    /// The `StorageValue` instance
-    pub fn to_binary(&self) -> Vec<u8> {
-        return bincode::serialize(&self).unwrap();
-    }
-
-    /// Create a new `StorageValue` instance from a binary representation
-    /// # Arguments
-    /// * `data` - The binary representation of the `StorageValue`
-    /// # Returns
-    /// The `StorageValue` instance
-    pub fn from_binary(data: &[u8]) -> Self {
-        return bincode::deserialize(data).unwrap();
-    }
-
-    /// Get the value as a Integer
-    ///
-    /// # Returns
-    /// Result containing the integer value or an error
-    ///
-    /// # Example
-    /// ```
-    /// let storage_value = StorageValue {
-    ///  value_type: ValueType::Integer,
-    ///  ttl: 1000,
-    ///  value: b"123".to_vec(),
-    /// };
-    /// let value = storage_value.get_integer_value().unwrap();
-    /// ```
-    pub fn get_integer_value(&self) -> Result<i64, DatabaseError> {
-        if self.value_type != ValueType::Integer {
-            return Err(DatabaseError::InvalidValueType(
-                "Value is not an integer".to_string(),
-            ));
-        }
-
-        let string_value = String::from_utf8(self.value.clone());
-        if string_value.is_err() {
-            return Err(DatabaseError::InternalError(
-                "Failed to parse integer value".to_string(),
-            ));
-        }
-
-        let value = string_value.unwrap().parse();
-        match value {
-            Ok(value) => return Ok(value),
-            Err(err) => {
-                return Err(DatabaseError::InternalError(format!(
-                    "Failed to parse integer value: {err}"
-                )));
-            }
-        }
-    }
-}
-
-/// Value types supported by the database
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum ValueType {
-    String,
-    Integer,
-}
-
-impl From<ValueType> for String {
-    fn from(value: ValueType) -> Self {
-        return match value {
-            ValueType::String => Self::from("String"),
-            ValueType::Integer => Self::from("Integer"),
-        };
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::storages::value::{StorageValue, ValueType};
+
     use super::*;
 
     #[test]
@@ -824,9 +731,9 @@ mod tests {
         assert_eq!(value.ttl, -1, "TTL is incorrect");
     }
 
-    fn get_test_db() -> Database {
+    fn get_test_db() -> Rocksdb {
         let db_path = format!("/dev/shm/test_db_{}", rand::random::<i32>());
-        let db = Database::open(db_path.as_str()).unwrap();
+        let db = Rocksdb::open(db_path.as_str()).unwrap();
 
         let value = &mut StorageValue {
             value_type: ValueType::String,

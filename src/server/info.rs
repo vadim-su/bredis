@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use actix_web::{web, Responder};
 
-use crate::server::models;
+use super::models;
 
 pub struct Service {
     info: crate::info::Info,

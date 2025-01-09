@@ -4,20 +4,21 @@
 #![deny(clippy::as_conversions)]
 #![allow(clippy::needless_return)]
 #![allow(clippy::multiple_crate_versions)]
+mod cli;
+mod errors;
+pub(crate) mod info;
+mod server;
+mod storages;
+
 use std::sync::Arc;
 
 use log::{debug, error};
 use rand::random;
 
-mod cli;
-mod database;
-mod errors;
-pub(crate) mod info;
-mod server;
 /// The main entry point of the program.
 #[tokio::main]
 async fn main() {
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
 
     let matches = cli::make_cli().get_matches();
 
@@ -33,7 +34,7 @@ async fn run(bind: &str) {
 
     debug!("Using database path: {db_path}");
 
-    let db_result = database::Database::open(db_path.as_str());
+    let db_result = storages::rocksdb::Rocksdb::open(db_path.as_str());
     if let Err(err) = db_result {
         error!("Error opening database: {err}");
         return;

@@ -8,17 +8,17 @@ use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 
-use crate::database::Database;
 use crate::errors::Error;
-use crate::server::{docs, info, query};
+use crate::server::{docs, info, queries};
+use crate::storages::rocksdb::Rocksdb;
 
 #[derive(Clone)]
 pub struct Server {
-    db: Arc<Database>,
+    db: Arc<Rocksdb>,
 }
 
 impl Server {
-    pub const fn new(db: Arc<Database>) -> Self {
+    pub const fn new(db: Arc<Rocksdb>) -> Self {
         Self { db }
     }
 
@@ -36,7 +36,7 @@ impl Server {
     fn config(self, cfg: &mut web::ServiceConfig) {
         cfg.configure(move |cfg| info::Service::new().config(cfg));
         cfg.configure(move |cfg| {
-            let query_service = query::Service::new(self.db);
+            let query_service = queries::service::DatabaseQueries::new(self.db);
             query_service.config(cfg);
         });
         cfg.configure(move |cfg| docs::Service::new().config(cfg));

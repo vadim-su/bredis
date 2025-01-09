@@ -4,6 +4,6 @@ mod core;
 mod docs;
 mod info;
 mod models;
-mod query;
+mod queries;
 
 pub use crate::server::core::Server;
