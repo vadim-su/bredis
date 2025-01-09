@@ -289,6 +289,22 @@ impl Storage for Rocksdb {
         }
     }
 
+    /// Increment the value for a key in the database
+    /// If the key does not exist, it will be created with the default value
+    ///
+    /// # Arguments
+    /// * `key` - The key to increment
+    /// * `value` - The value to increment by
+    /// * `default_value` - The default value to use if the key does not exist
+    ///
+    /// # Returns
+    /// A Result containing the new value or a `DatabaseError`
+    ///
+    /// # Example
+    /// ```
+    /// let db = Database::open("/dev/shm/my_storage").unwrap();
+    /// db.increment(b"my_key", 1, None);
+    /// ```
     fn increment(
         &self,
         key: &[u8],
@@ -336,6 +352,22 @@ impl Storage for Rocksdb {
         return Ok(storage_value);
     }
 
+    /// Decrement the value for a key in the database
+    /// If the key does not exist, it will be created with the default value
+    ///
+    /// # Arguments
+    /// * `key` - The key to decrement
+    /// * `value` - The value to decrement by
+    /// * `default_value` - The default value to use if the key does not exist
+    ///
+    /// # Returns
+    /// A Result containing the new value or a `DatabaseError`
+    ///
+    /// # Example
+    /// ```
+    /// let db = Database::open("/dev/shm/my_storage").unwrap();
+    /// db.decrement(b"my_key", 1, None);
+    /// ```
     fn decrement(
         &self,
         key: &[u8],
