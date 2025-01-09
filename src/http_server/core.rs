@@ -9,7 +9,7 @@ use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 
 use crate::errors::Error;
-use crate::server::{docs, info, queries};
+use crate::http_server::{docs, info, queries};
 use crate::storages::rocksdb::Rocksdb;
 
 #[derive(Clone)]

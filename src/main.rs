@@ -7,7 +7,7 @@
 mod cli;
 mod errors;
 pub(crate) mod info;
-mod server;
+mod http_server;
 mod storages;
 
 use std::sync::Arc;
@@ -40,7 +40,7 @@ async fn run(bind: &str) {
         return;
     }
     let db = db_result.unwrap();
-    let server = server::Server::new(Arc::new(db));
+    let server = http_server::Server::new(Arc::new(db));
 
     if let Err(err) = server.serve(bind.to_owned()).await {
         error!("Error serving: {err}");

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_web::{test, App};
 
 use super::service::DatabaseQueries;
-use crate::server::models;
+use crate::http_server::models;
 use crate::storages::rocksdb::Rocksdb;
 use crate::storages::storage::Storage;
 use crate::storages::value::{StorageValue, ValueType};

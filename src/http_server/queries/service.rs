@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_web::web;
 
 use crate::{
-    server::models,
+    http_server::models,
     storages::{
         storage::Storage,
         value::{StorageValue, ValueType},
