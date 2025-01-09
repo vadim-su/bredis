@@ -6,14 +6,13 @@
 #![allow(clippy::multiple_crate_versions)]
 mod cli;
 mod errors;
-pub(crate) mod info;
 mod http_server;
+pub(crate) mod info;
 mod storages;
-
-use std::sync::Arc;
 
 use log::{debug, error};
 use rand::random;
+use std::sync::Arc;
 
 /// The main entry point of the program.
 #[tokio::main]
