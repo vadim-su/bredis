@@ -1,12 +1,13 @@
-use rocksdb::{OptimisticTransactionDB, Transaction};
+use async_trait::async_trait;
 
 use crate::errors::DatabaseError;
 
 use super::value::StorageValue;
 
-pub trait Storage {
+#[async_trait]
+pub trait Storage: Sync + Send {
     /// Close the database and remove the storage directory
-    fn close(&self);
+    async fn close(&self);
 
     /// Get the value for a key from the database
     ///
@@ -26,7 +27,7 @@ pub trait Storage {
     ///     println!("Value not found");
     /// }
     /// ```
-    fn get(&self, key: &[u8]) -> Result<Option<StorageValue>, DatabaseError>;
+    async fn get(&self, key: &[u8]) -> Result<Option<StorageValue>, DatabaseError>;
 
     /// Get all keys in the database
     ///
@@ -35,7 +36,7 @@ pub trait Storage {
     ///
     /// # Returns
     /// A Result containing a vector of keys or a `RocksDB` error
-    fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, DatabaseError>;
+    async fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, DatabaseError>;
 
     /// Get the time-to-live (TTL) for a key
     ///
@@ -54,7 +55,7 @@ pub trait Storage {
     /// # Errors
     /// If the key is not found, a `DatabaseError::ValueNotFound` error is returned
     /// If there is an error getting the value, a `DatabaseError` is returned
-    fn get_ttl(&self, key: &[u8]) -> Result<i64, DatabaseError>;
+    async fn get_ttl(&self, key: &[u8]) -> Result<i64, DatabaseError>;
 
     /// Update the time-to-live (TTL) for a key
     /// If the TTL is set to a negative value, the key will not expire
@@ -71,7 +72,7 @@ pub trait Storage {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.update_ttl(b"my_key", 1000);
     /// ```
-    fn update_ttl(&self, key: &[u8], ttl: i64) -> Result<(), DatabaseError>;
+    async fn update_ttl(&self, key: &[u8], ttl: i64) -> Result<(), DatabaseError>;
 
     /// Set the value for a key in the database
     ///
@@ -84,16 +85,16 @@ pub trait Storage {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.set(b"my_key", b"my_value");
     /// ```
-    fn set(&self, key: &[u8], value: &StorageValue) -> Result<(), DatabaseError>;
+    async fn set(&self, key: &[u8], value: &StorageValue) -> Result<(), DatabaseError>;
 
-    fn increment(
+    async fn increment(
         &self,
         key: &[u8],
         value: i64,
         default_value: Option<i64>,
     ) -> Result<StorageValue, DatabaseError>;
 
-    fn decrement(
+    async fn decrement(
         &self,
         key: &[u8],
         value: i64,
@@ -110,7 +111,7 @@ pub trait Storage {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.delete(b"my_key");
     /// ```
-    fn delete(&self, key: &[u8]) -> Result<(), DatabaseError>;
+    async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError>;
 
     /// Delete all keys starting with a prefix
     ///
@@ -122,17 +123,5 @@ pub trait Storage {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.delete_prefix(b"my_prefix");
     /// ```
-    fn delete_prefix(&self, prefix: &[u8]) -> Result<(), DatabaseError>;
-
-    /// Delete a key-value pair from the database if the TTL has expired
-    /// # Arguments
-    /// * `txn` - The transaction to use
-    /// * `key` - The key to delete
-    /// # Returns
-    /// A Result containing a boolean indicating if the key was deleted or a `RocksDB` error
-    fn delete_on_ttl(
-        &self,
-        txn: &Transaction<OptimisticTransactionDB>,
-        key: &StorageValue,
-    ) -> Result<bool, DatabaseError>;
+    async fn delete_prefix(&self, prefix: &[u8]) -> Result<(), DatabaseError>;
 }

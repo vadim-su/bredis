@@ -1,6 +1,7 @@
 use std::fs;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use rocksdb::{OptimisticTransactionDB, Options, Transaction, DB, DEFAULT_COLUMN_FAMILY_NAME};
 
 use crate::errors::DatabaseError;
@@ -50,7 +51,7 @@ impl Clone for Rocksdb {
 
 impl Drop for Rocksdb {
     fn drop(&mut self) {
-        self.close();
+        futures::executor::block_on(self.close());
     }
 }
 
@@ -80,6 +81,23 @@ impl Rocksdb {
         });
     }
 
+    /// Delete a key-value pair from the database if the TTL has expired
+    /// # Arguments
+    /// * `txn` - The transaction to use
+    /// * `key` - The key to delete
+    /// # Returns
+    /// A Result containing a boolean indicating if the key was deleted or a `RocksDB` error
+    fn delete_on_ttl(
+        txn: &Transaction<OptimisticTransactionDB>,
+        key: &StorageValue,
+    ) -> Result<bool, DatabaseError> {
+        if key.ttl <= 0 {
+            txn.delete(key.value.as_slice())?;
+            return Ok(true);
+        }
+        return Ok(false);
+    }
+
     /// Prepare the storage location by removing the directory and creating a new one
     ///
     /// # Arguments
@@ -102,10 +120,10 @@ impl Rocksdb {
         }
     }
 }
-
+#[async_trait]
 impl Storage for Rocksdb {
     /// Close the database and remove the storage directory
-    fn close(&self) {
+    async fn close(&self) {
         DB::destroy(&Options::default(), &self.path).unwrap_or_default();
     }
 
@@ -127,7 +145,7 @@ impl Storage for Rocksdb {
     ///     println!("Value not found");
     /// }
     /// ```
-    fn get(&self, key: &[u8]) -> Result<Option<StorageValue>, DatabaseError> {
+    async fn get(&self, key: &[u8]) -> Result<Option<StorageValue>, DatabaseError> {
         let txn = self.store.transaction();
         let raw_value = txn.get(key);
         match raw_value {
@@ -135,8 +153,9 @@ impl Storage for Rocksdb {
                 Some(value) => {
                     let mut storage_value = StorageValue::from_binary(value.as_slice());
                     if storage_value.ttl > -1 {
-                        storage_value.ttl -= chrono::Utc::now().timestamp();
-                        if self.delete_on_ttl(&txn, &storage_value)? {
+                        let now = chrono::Utc::now().timestamp();
+                        storage_value.ttl -= now;
+                        if Self::delete_on_ttl(&txn, &storage_value)? {
                             return Ok(None);
                         }
                     }
@@ -156,25 +175,30 @@ impl Storage for Rocksdb {
     ///
     /// # Returns
     /// A Result containing a vector of keys or a `RocksDB` error
-    fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, DatabaseError> {
+    async fn get_all_keys(&self, prefix: &[u8]) -> Result<Vec<String>, DatabaseError> {
         let mut keys = Vec::new();
         let txn = self.store.transaction();
         let iter = txn.prefix_iterator(prefix);
         for result in iter {
             match result {
                 Ok((key, raw_value)) => {
+                    // If the key does not start with the prefix, we already have all the keys
+                    // as the iterator is sorted
+                    if !key.starts_with(prefix) {
+                        break;
+                    }
+
                     let mut storage_value = StorageValue::from_binary(&raw_value);
                     if storage_value.ttl > -1 {
                         storage_value.ttl -= chrono::Utc::now().timestamp();
-                        if self.delete_on_ttl(&txn, &storage_value)? {
+                        if Self::delete_on_ttl(&txn, &storage_value)? {
                             continue;
                         }
                     }
 
-                    // FIXME: This is not correct, we need to return error
                     let parsed_key = String::from_utf8(key.to_vec()).unwrap();
                     keys.push(parsed_key);
-                } // Push reference to the key
+                }
                 Err(err) => return Err(err.into()),
             }
         }
@@ -198,7 +222,7 @@ impl Storage for Rocksdb {
     /// # Errors
     /// If the key is not found, a `DatabaseError::ValueNotFound` error is returned
     /// If there is an error getting the value, a `DatabaseError` is returned
-    fn get_ttl(&self, key: &[u8]) -> Result<i64, DatabaseError> {
+    async fn get_ttl(&self, key: &[u8]) -> Result<i64, DatabaseError> {
         let txn = self.store.transaction();
         let raw_value = txn.get(key);
         match raw_value {
@@ -214,7 +238,7 @@ impl Storage for Rocksdb {
                         return Ok(ttl);
                     }
 
-                    self.delete(key)?;
+                    txn.delete(key)?;
                     return Err(DatabaseError::ValueNotFound(
                         String::from_utf8_lossy(key).to_string(),
                     ));
@@ -244,7 +268,7 @@ impl Storage for Rocksdb {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.update_ttl(b"my_key", 1000);
     /// ```
-    fn update_ttl(&self, key: &[u8], ttl: i64) -> Result<(), DatabaseError> {
+    async fn update_ttl(&self, key: &[u8], ttl: i64) -> Result<(), DatabaseError> {
         let txn = self.store.transaction();
         let raw_value = txn.get(key)?;
         if let Some(value) = raw_value {
@@ -275,7 +299,7 @@ impl Storage for Rocksdb {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.set(b"my_key", b"my_value");
     /// ```
-    fn set(&self, key: &[u8], value: &StorageValue) -> Result<(), DatabaseError> {
+    async fn set(&self, key: &[u8], value: &StorageValue) -> Result<(), DatabaseError> {
         let mut value = value.clone();
         if value.ttl < 0 {
             value.ttl = -1;
@@ -305,7 +329,7 @@ impl Storage for Rocksdb {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.increment(b"my_key", 1, None);
     /// ```
-    fn increment(
+    async fn increment(
         &self,
         key: &[u8],
         value: i64,
@@ -368,7 +392,7 @@ impl Storage for Rocksdb {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.decrement(b"my_key", 1, None);
     /// ```
-    fn decrement(
+    async fn decrement(
         &self,
         key: &[u8],
         value: i64,
@@ -425,7 +449,7 @@ impl Storage for Rocksdb {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.delete(b"my_key");
     /// ```
-    fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
+    async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
         match self.store.delete(key) {
             Ok(()) => return Ok(()),
             Err(err) => return Err(err.into()),
@@ -442,7 +466,7 @@ impl Storage for Rocksdb {
     /// let db = Database::open("/dev/shm/my_storage").unwrap();
     /// db.delete_prefix(b"my_prefix");
     /// ```
-    fn delete_prefix(&self, prefix: &[u8]) -> Result<(), DatabaseError> {
+    async fn delete_prefix(&self, prefix: &[u8]) -> Result<(), DatabaseError> {
         let mut end_prefix = prefix.to_vec();
         end_prefix.push(PREFIX_SEARCH_ENDING);
         let cf = self.store.cf_handle(DEFAULT_COLUMN_FAMILY_NAME);
@@ -456,340 +480,5 @@ impl Storage for Rocksdb {
             Ok(()) => return Ok(()),
             Err(err) => return Err(err.into()),
         }
-    }
-
-    /// Delete a key-value pair from the database if the TTL has expired
-    /// # Arguments
-    /// * `txn` - The transaction to use
-    /// * `key` - The key to delete
-    /// # Returns
-    /// A Result containing a boolean indicating if the key was deleted or a `RocksDB` error
-    fn delete_on_ttl(
-        &self,
-        txn: &Transaction<OptimisticTransactionDB>,
-        key: &StorageValue,
-    ) -> Result<bool, DatabaseError> {
-        if key.ttl <= 0 {
-            txn.delete(key.value.as_slice())?;
-            return Ok(true);
-        }
-        return Ok(false);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::storages::value::{StorageValue, ValueType};
-
-    use super::*;
-
-    #[test]
-    fn test_get_all_keys() {
-        let db = get_test_db();
-
-        let keys = db.get_all_keys(b"prefix_").unwrap();
-        assert_eq!(keys.len(), 3);
-        assert!(keys.contains(&String::from("prefix_key1")));
-        assert!(keys.contains(&String::from("prefix_key2")));
-    }
-
-    #[test]
-    fn test_get_ttl() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: 1000,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let ttl = db.get_ttl(b"my_key").unwrap();
-        assert_eq!(ttl, 1000, "TTL is incorrect");
-
-        let ttl = db.get_ttl(b"non_existent_key");
-        assert!(ttl.is_err(), "Expected error for non-existent key");
-    }
-
-    #[test]
-    fn test_get_ttl_no_ttl() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: -1,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let ttl = db.get_ttl(b"my_key").unwrap();
-        assert_eq!(ttl, -1, "TTL is incorrect");
-    }
-
-    #[test]
-    fn test_get_ttl_expired() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: 1,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        let ttl = db.get_ttl(b"my_key");
-        assert!(ttl.is_err(), "Expected error for expired key");
-    }
-
-    #[test]
-    fn test_update_ttl() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: 1000,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let ttl = db.get_ttl(b"my_key").unwrap();
-        assert_eq!(ttl, 1000, "TTL is incorrect");
-
-        db.update_ttl(b"my_key", 2000).unwrap();
-        let ttl = db.get_ttl(b"my_key").unwrap();
-        assert_eq!(ttl, 2000, "TTL is incorrect");
-
-        db.update_ttl(b"my_key", -1).unwrap();
-        let ttl = db.get_ttl(b"my_key").unwrap();
-        assert_eq!(ttl, -1, "TTL is incorrect");
-    }
-
-    #[test]
-    fn test_set() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: -1,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let raw_value = db.store.get(b"my_key").unwrap();
-        let storage_value = StorageValue::from_binary(raw_value.unwrap().as_slice());
-        assert_eq!(
-            storage_value.value_type,
-            ValueType::String,
-            "Value type is incorrect"
-        );
-        assert_eq!(storage_value.value, b"my_value", "Value is incorrect");
-        assert_eq!(storage_value.ttl, -1, "TTL is incorrect");
-    }
-
-    #[test]
-    fn test_delete() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: -1,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-        db.delete(b"my_key").unwrap();
-
-        let value = db.store.get(b"my_key").unwrap();
-        assert!(value.is_none());
-    }
-
-    #[test]
-    fn test_delete_prefix() {
-        let db = get_test_db();
-        db.delete_prefix(b"prefix_").unwrap();
-
-        let keys = db.get_all_keys(b"").unwrap();
-        assert_eq!(keys.len(), 3);
-        assert!(keys.contains(&String::from("key1")));
-        assert!(keys.contains(&String::from("key2")));
-    }
-
-    #[test]
-    fn test_ttl() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: 1,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let value = db.get(b"my_key").unwrap().unwrap();
-        assert_eq!(
-            value.value_type,
-            ValueType::String,
-            "Value type is incorrect"
-        );
-        assert_eq!(value.value, b"my_value", "Value is incorrect");
-        assert_eq!(value.ttl, 1, "TTL is incorrect");
-
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        let value = db.get(b"my_key").unwrap();
-        assert!(value.is_none());
-    }
-
-    #[test]
-    fn test_integer_value() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::Integer,
-            ttl: -1,
-            value: b"123".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let value = db.get(b"my_key").unwrap().unwrap();
-        assert_eq!(
-            value.value_type,
-            ValueType::Integer,
-            "Value type is incorrect"
-        );
-        assert_eq!(value.value, b"123", "Value is incorrect");
-        assert_eq!(value.ttl, -1, "TTL is incorrect");
-    }
-
-    #[test]
-    fn test_get_integer_value() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::Integer,
-            ttl: -1,
-            value: b"123".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let value = db.get(b"my_key").unwrap().unwrap();
-        let integer_value = value.get_integer_value().unwrap();
-        assert_eq!(integer_value, 123);
-    }
-
-    #[test]
-    fn test_increment() {
-        let db = get_test_db();
-
-        let value = db.increment(b"value_num", 1, None).unwrap();
-        assert_eq!(value.value, b"2", "Value is incorrect");
-
-        let value = db.increment(b"value_num", 2, None).unwrap();
-        assert_eq!(value.value, b"4", "Value is incorrect");
-    }
-
-    #[test]
-    fn test_default_increment() {
-        let db = get_test_db();
-
-        let value = db.increment(b"value_num", 1, Some(10)).unwrap();
-        assert_eq!(value.value, b"2", "Value is incorrect");
-
-        let value = db.increment(b"value_num", 2, Some(10)).unwrap();
-        assert_eq!(value.value, b"4", "Value is incorrect");
-    }
-
-    #[test]
-    fn test_default_exist_increment() {
-        let db = get_test_db();
-
-        let value = db.increment(b"value_num", 1, Some(10)).unwrap();
-        assert_eq!(value.value, b"2", "Value is incorrect");
-
-        let value = db.increment(b"value_num", 2, Some(10)).unwrap();
-        assert_eq!(value.value, b"4", "Value is incorrect");
-    }
-
-    #[test]
-    fn test_decrement() {
-        let db = get_test_db();
-
-        let value = db.decrement(b"value_num", 1, None).unwrap();
-        assert_eq!(value.value, b"0", "Value is incorrect");
-
-        let value = db.decrement(b"value_num", 2, None).unwrap();
-        assert_eq!(value.value, b"-2", "Value is incorrect");
-    }
-
-    #[test]
-    fn test_default_decrement() {
-        let db = get_test_db();
-
-        let value = db.decrement(b"new_value_num", 1, Some(10)).unwrap();
-        assert_eq!(value.value, b"9", "Value is incorrect");
-
-        let value = db.decrement(b"new_value_num", 2, Some(10)).unwrap();
-        assert_eq!(value.value, b"7", "Value is incorrect");
-    }
-
-    #[test]
-    fn test_default_exist_decrement() {
-        let db = get_test_db();
-
-        let value = db.decrement(b"value_num", 1, Some(10)).unwrap();
-        assert_eq!(value.value, b"0", "Value is incorrect");
-
-        let value = db.decrement(b"value_num", 2, Some(10)).unwrap();
-        assert_eq!(value.value, b"-2", "Value is incorrect");
-    }
-
-    #[test]
-    fn test_string_value() {
-        let db = get_test_db();
-
-        let value = &StorageValue {
-            value_type: ValueType::String,
-            ttl: -1,
-            value: b"my_value".to_vec(),
-        };
-        db.set(b"my_key", value).unwrap();
-
-        let value = db.get(b"my_key").unwrap().unwrap();
-        assert_eq!(
-            value.value_type,
-            ValueType::String,
-            "Value type is incorrect"
-        );
-        assert_eq!(value.value, b"my_value", "Value is incorrect");
-        assert_eq!(value.ttl, -1, "TTL is incorrect");
-    }
-
-    fn get_test_db() -> Rocksdb {
-        let db_path = format!("/dev/shm/test_db_{}", rand::random::<i32>());
-        let db = Rocksdb::open(db_path.as_str()).unwrap();
-
-        let value = &mut StorageValue {
-            value_type: ValueType::String,
-            ttl: -1,
-            value: b"value1".to_vec(),
-        };
-        db.set(b"key1", value).unwrap();
-
-        value.value = b"value2".to_vec();
-        db.set(b"key2", value).unwrap();
-
-        value.value = b"value3".to_vec();
-        db.set(b"prefix_key1", value).unwrap();
-
-        value.value = b"value4".to_vec();
-        db.set(b"prefix_key2", value).unwrap();
-
-        let value = &StorageValue {
-            value_type: ValueType::Integer,
-            ttl: -1,
-            value: b"1".to_vec(),
-        };
-        db.set(b"value_num", value).unwrap();
-
-        return db;
     }
 }

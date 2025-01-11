@@ -10,15 +10,15 @@ use actix_web::{web, App, HttpServer};
 
 use crate::errors::Error;
 use crate::http_server::{docs, info, queries};
-use crate::storages::rocksdb::Rocksdb;
+use crate::storages::storage::Storage;
 
 #[derive(Clone)]
 pub struct Server {
-    db: Arc<Rocksdb>,
+    db: Arc<Box<dyn Storage>>,
 }
 
 impl Server {
-    pub const fn new(db: Arc<Rocksdb>) -> Self {
+    pub const fn new(db: Arc<Box<dyn Storage>>) -> Self {
         Self { db }
     }
 

@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// A type alias for the storage type
-type StorageType = Arc<dyn Storage + Send + Sync>;
+pub type StorageType = Arc<Box<dyn Storage>>;
 
 pub struct DatabaseQueries {
     db: StorageType,
@@ -52,7 +52,7 @@ impl DatabaseQueries {
         db: web::Data<StorageType>,
         key: web::Path<String>,
     ) -> web::Json<models::ApiResponse<models::GetResponse>> {
-        let possible_value = db.get(key.as_bytes());
+        let possible_value = db.get(key.as_bytes()).await;
         return match possible_value {
             Ok(Some(sotre_value)) => match sotre_value.value_type {
                 ValueType::Integer => {
@@ -81,7 +81,7 @@ impl DatabaseQueries {
         db: web::Data<StorageType>,
         web::Query(models::GetAllKeysQuery { prefix }): web::Query<models::GetAllKeysQuery>,
     ) -> web::Json<models::ApiResponse<models::GetAllKeysResponse>> {
-        let keys = db.get_all_keys(prefix.as_bytes());
+        let keys = db.get_all_keys(prefix.as_bytes()).await;
         return match keys {
             Ok(keys) => web::Json(models::ApiResponse::Success(models::GetAllKeysResponse {
                 keys,
@@ -109,7 +109,7 @@ impl DatabaseQueries {
             },
         };
 
-        let result = db.set(request.key.as_bytes(), &store_value);
+        let result = db.set(request.key.as_bytes(), &store_value).await;
         return match result {
             Ok(()) => web::Json(models::ApiResponse::Success(
                 models::OperationSuccessResponse { success: true },
@@ -124,7 +124,7 @@ impl DatabaseQueries {
         db: web::Data<StorageType>,
         key: web::Path<String>,
     ) -> web::Json<models::ApiResponse<models::OperationSuccessResponse>> {
-        let result = db.delete(key.as_bytes());
+        let result = db.delete(key.as_bytes()).await;
         return match result {
             Ok(()) => web::Json(models::ApiResponse::Success(
                 models::OperationSuccessResponse { success: true },
@@ -144,7 +144,7 @@ impl DatabaseQueries {
             Some(request) => request.prefix.clone(),
         };
 
-        match db.delete_prefix(prefix.as_bytes()) {
+        match db.delete_prefix(prefix.as_bytes()).await {
             Ok(()) => {
                 return web::Json(models::ApiResponse::Success(
                     models::OperationSuccessResponse { success: true },
@@ -162,7 +162,7 @@ impl DatabaseQueries {
         db: web::Data<StorageType>,
         key: web::Path<String>,
     ) -> web::Json<models::ApiResponse<models::GetTtlResponse>> {
-        let ttl = db.get_ttl(key.as_bytes());
+        let ttl = db.get_ttl(key.as_bytes()).await;
         return match ttl {
             Ok(ttl) => web::Json(models::ApiResponse::Success(models::GetTtlResponse { ttl })),
             Err(crate::errors::DatabaseError::ValueNotFound(_)) => {
@@ -181,7 +181,7 @@ impl DatabaseQueries {
         key: web::Path<String>,
         request: web::Json<models::SetTtlRequest>,
     ) -> web::Json<models::ApiResponse<models::OperationSuccessResponse>> {
-        let result = db.update_ttl(key.as_bytes(), request.ttl);
+        let result = db.update_ttl(key.as_bytes(), request.ttl).await;
         return match result {
             Ok(()) => web::Json(models::ApiResponse::Success(
                 models::OperationSuccessResponse { success: true },
@@ -197,7 +197,9 @@ impl DatabaseQueries {
         key: web::Path<String>,
         request: web::Json<models::IncrementRequest>,
     ) -> web::Json<models::ApiResponse<models::IncrementResponse>> {
-        let store_value_result = db.increment(key.as_bytes(), request.value, request.default);
+        let store_value_result = db
+            .increment(key.as_bytes(), request.value, request.default)
+            .await;
         if store_value_result.is_err() {
             return web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
                 error: format!("{err}", err = store_value_result.err().unwrap()),
@@ -219,7 +221,9 @@ impl DatabaseQueries {
         key: web::Path<String>,
         request: web::Json<models::IncrementRequest>,
     ) -> web::Json<models::ApiResponse<models::IncrementResponse>> {
-        let store_value_result = db.decrement(key.as_bytes(), request.value, request.default);
+        let store_value_result = db
+            .decrement(key.as_bytes(), request.value, request.default)
+            .await;
         if store_value_result.is_err() {
             return web::Json(models::ApiResponse::ErrorResponse(models::ErrorResponse {
                 error: format!("{err}", err = store_value_result.err().unwrap()),

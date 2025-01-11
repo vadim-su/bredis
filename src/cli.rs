@@ -12,13 +12,22 @@ pub fn make_cli() -> Command {
         .author(crate_authors!(",\n"))
         .subcommand_required(true)
         .subcommand(
-            Command::new("run").about("Run the Bredis server").arg(
-                Arg::new("bind")
-                    .short('b')
-                    .long("bind")
-                    .value_name("BIND")
-                    .help("Address to bind to")
-                    .default_value("[::1]:4123"),
-            ),
+            Command::new("run")
+                .about("Run the Bredis server")
+                .arg(
+                    Arg::new("bind")
+                        .short('b')
+                        .long("bind")
+                        .value_name("BIND")
+                        .help("Address to bind to")
+                        .default_value("[::1]:4123"),
+                )
+                .arg(
+                    Arg::new("backend")
+                        .long("backend")
+                        .value_name("BACKEND")
+                        .help("Backend to use. Supported backends: rocksdb, bredis, and surrealkv")
+                        .default_value("surrealkv"),
+                ),
         );
 }

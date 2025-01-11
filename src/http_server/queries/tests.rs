@@ -1,16 +1,37 @@
 use std::sync::Arc;
 
 use actix_web::{test, App};
+use rstest::*;
+use rstest_reuse::{apply, template};
 
 use super::service::DatabaseQueries;
 use crate::http_server::models;
+use crate::storages::bredis::Bredis;
 use crate::storages::rocksdb::Rocksdb;
 use crate::storages::storage::Storage;
+use crate::storages::surrealkv::SurrealKV;
 use crate::storages::value::{StorageValue, ValueType};
 
+#[template]
+#[rstest]
+#[case::rocksdb(async { rocksdb().await })]
+#[case::bredis(async { bredis().await })]
+#[case::surrealkv(async { surrealkv().await })]
 #[actix_web::test]
-async fn test_get_value() {
-    let db = get_test_db();
+async fn test_cases(
+    #[future]
+    #[case]
+    _db: Box<dyn Storage>,
+) {
+}
+
+#[apply(test_cases)]
+async fn test_get_value(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
     let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::default().uri("/keys/key1").to_request();
@@ -23,9 +44,13 @@ async fn test_get_value() {
     );
 }
 
-#[actix_web::test]
-async fn test_get_all_keys() {
-    let db = get_test_db();
+#[apply(test_cases)]
+async fn test_get_all_keys(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
     let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::default()
@@ -43,16 +68,20 @@ async fn test_get_all_keys() {
 
     match body {
         models::ApiResponse::Success(models::GetAllKeysResponse { keys }) => {
-            assert_eq!(keys.len(), 3);
+            assert_eq!(keys.len(), 2);
         }
         models::ApiResponse::ErrorResponse(_) => panic!("Unexpected response: {body:?}"),
     }
 }
 
-#[actix_web::test]
-async fn test_set_key() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_set_key(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -71,10 +100,14 @@ async fn test_set_key() {
     );
 }
 
-#[actix_web::test]
-async fn test_delete_key() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_delete_key(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db_arc = Arc::new(db.await);
+    let query_service = DatabaseQueries::new(db_arc.clone());
 
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::delete().uri("/keys/key1").to_request();
@@ -86,13 +119,18 @@ async fn test_delete_key() {
         resp.response().body()
     );
 
-    assert!(db.get(b"key1").unwrap().is_none());
+    assert!(db_arc.get(b"key1").await.unwrap().is_none());
 }
 
-#[actix_web::test]
-async fn test_delete_keys() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_delete_keys(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db_arc = Arc::new(db.await);
+
+    let query_service = DatabaseQueries::new(db_arc.clone());
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::delete()
         .uri("/keys")
@@ -108,15 +146,20 @@ async fn test_delete_keys() {
         resp.response().body()
     );
 
-    assert!(db.get(b"prefix_key1").unwrap().is_none());
-    assert!(db.get(b"prefix_key2").unwrap().is_none());
-    assert!(db.get(b"key1").unwrap().is_some());
+    assert!(db_arc.get(b"prefix_key1").await.unwrap().is_none());
+    assert!(db_arc.get(b"prefix_key2").await.unwrap().is_none());
+    assert!(db_arc.get(b"key1").await.unwrap().is_some());
 }
 
-#[actix_web::test]
-async fn test_ttl() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_ttl(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db_arc = Arc::new(db.await);
+
+    let query_service = DatabaseQueries::new(db_arc.clone());
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -135,17 +178,21 @@ async fn test_ttl() {
         resp.response().body()
     );
 
-    assert!(db.get(b"key3").unwrap().is_some());
+    assert!(db_arc.get(b"key3").await.unwrap().is_some());
 
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    assert!(db.get(b"key3").unwrap().is_none());
+    assert!(db_arc.get(b"key3").await.unwrap().is_none());
 }
 
-#[actix_web::test]
-async fn test_integer_value() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_integer_value(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -186,10 +233,14 @@ async fn test_integer_value() {
     }
 }
 
-#[actix_web::test]
-async fn test_string_value() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_string_value(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -230,10 +281,14 @@ async fn test_string_value() {
     }
 }
 
-#[actix_web::test]
-async fn test_increment() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_increment(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/inc")
@@ -260,10 +315,14 @@ async fn test_increment() {
     }
 }
 
-#[actix_web::test]
-async fn test_default_increment() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_default_increment(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/inc")
@@ -290,10 +349,14 @@ async fn test_default_increment() {
     }
 }
 
-#[actix_web::test]
-async fn test_default_exist_increment() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_default_exist_increment(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys/new_value_num/inc")
@@ -320,10 +383,14 @@ async fn test_default_exist_increment() {
     }
 }
 
-#[actix_web::test]
-async fn test_decrement() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_decrement(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/dec")
@@ -350,10 +417,14 @@ async fn test_decrement() {
     }
 }
 
-#[actix_web::test]
-async fn test_default_decrement() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_default_decrement(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys/new_value_num/dec")
@@ -380,10 +451,14 @@ async fn test_default_decrement() {
     }
 }
 
-#[actix_web::test]
-async fn test_default_exist_decrement() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_default_exist_decrement(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/dec")
@@ -410,10 +485,14 @@ async fn test_default_exist_decrement() {
     }
 }
 
-#[actix_web::test]
-async fn test_get_ttl() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_get_ttl(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::get().uri("/keys/key1/ttl").to_request();
     let resp = test::call_service(&app, req).await;
@@ -434,10 +513,14 @@ async fn test_get_ttl() {
     }
 }
 
-#[actix_web::test]
-async fn test_get_ttl_nonexistent_key() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_get_ttl_nonexistent_key(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::get()
         .uri("/keys/nonexistent_key/ttl")
@@ -460,10 +543,14 @@ async fn test_get_ttl_nonexistent_key() {
     }
 }
 
-#[actix_web::test]
-async fn test_set_key_with_ttl() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_set_key_with_ttl(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -502,10 +589,14 @@ async fn test_set_key_with_ttl() {
     }
 }
 
-#[actix_web::test]
-async fn test_set_ttl() {
-    let db = get_test_db();
-    let query_service = DatabaseQueries::new(Arc::new(db.clone()));
+#[apply(test_cases)]
+async fn test_set_ttl(
+    #[future]
+    #[case]
+    db: Box<dyn Storage>,
+) {
+    let db = db.await;
+    let query_service = DatabaseQueries::new(Arc::new(db));
     let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
     let req = test::TestRequest::post()
         .uri("/keys/key1/ttl")
@@ -538,31 +629,91 @@ async fn test_set_ttl() {
     }
 }
 
-fn get_test_db() -> impl Storage + Clone {
+#[fixture]
+async fn rocksdb() -> Box<dyn Storage> {
     let db_path = format!("/dev/shm/test_db_{}", rand::random::<i32>());
     let db = Rocksdb::open(db_path.as_str()).unwrap();
+
     let value = &mut StorageValue {
         value_type: ValueType::String,
         ttl: -1,
         value: b"value1".to_vec(),
     };
-    db.set(b"key1", value).unwrap();
+    db.set(b"key1", value).await.unwrap();
 
     value.value = b"value2".to_vec();
-    db.set(b"key2", value).unwrap();
+    db.set(b"key2", value).await.unwrap();
 
     value.value = b"value3".to_vec();
-    db.set(b"prefix_key1", value).unwrap();
+    db.set(b"prefix_key1", value).await.unwrap();
 
     value.value = b"value4".to_vec();
-    db.set(b"prefix_key2", value).unwrap();
+    db.set(b"prefix_key2", value).await.unwrap();
 
-    let value = &mut StorageValue {
+    let value = &StorageValue {
         value_type: ValueType::Integer,
         ttl: -1,
         value: b"1".to_vec(),
     };
-    db.set(b"value_num", value).unwrap();
+    db.set(b"value_num", value).await.unwrap();
 
-    return db;
+    return Box::new(db);
+}
+
+#[fixture]
+async fn bredis() -> Box<dyn Storage> {
+    let db = Bredis::open();
+    let value = &mut StorageValue {
+        value_type: ValueType::String,
+        ttl: -1,
+        value: b"value1".to_vec(),
+    };
+    db.set(b"key1", value).await.unwrap();
+
+    value.value = b"value2".to_vec();
+    db.set(b"key2", value).await.unwrap();
+
+    value.value = b"value3".to_vec();
+    db.set(b"prefix_key1", value).await.unwrap();
+
+    value.value = b"value4".to_vec();
+    db.set(b"prefix_key2", value).await.unwrap();
+
+    let value = &StorageValue {
+        value_type: ValueType::Integer,
+        ttl: -1,
+        value: b"1".to_vec(),
+    };
+    db.set(b"value_num", value).await.unwrap();
+
+    return Box::new(db);
+}
+
+#[fixture]
+async fn surrealkv() -> Box<dyn Storage> {
+    let db = SurrealKV::open();
+    let value = &mut StorageValue {
+        value_type: ValueType::String,
+        ttl: -1,
+        value: b"value1".to_vec(),
+    };
+    db.set(b"key1", value).await.unwrap();
+
+    value.value = b"value2".to_vec();
+    db.set(b"key2", value).await.unwrap();
+
+    value.value = b"value3".to_vec();
+    db.set(b"prefix_key1", value).await.unwrap();
+
+    value.value = b"value4".to_vec();
+    db.set(b"prefix_key2", value).await.unwrap();
+
+    let value = &StorageValue {
+        value_type: ValueType::Integer,
+        ttl: -1,
+        value: b"1".to_vec(),
+    };
+    db.set(b"value_num", value).await.unwrap();
+
+    return Box::new(db);
 }
