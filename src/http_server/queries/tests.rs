@@ -37,7 +37,7 @@ async fn test_get_value(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::default().uri("/keys/key1").to_request();
     let resp = test::call_service(&service, req).await;
@@ -60,7 +60,7 @@ async fn test_get_all_keys(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::default()
         .uri("/keys?prefix=prefix_")
@@ -94,7 +94,7 @@ async fn test_set_key(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -123,7 +123,7 @@ async fn test_delete_key(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::delete().uri("/keys/key1").to_request();
     let resp = test::call_service(&service, req).await;
@@ -148,7 +148,7 @@ async fn test_delete_keys(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::delete()
         .uri("/keys")
@@ -180,7 +180,7 @@ async fn test_ttl(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -217,7 +217,7 @@ async fn test_integer_value(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -269,7 +269,7 @@ async fn test_string_value(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -321,7 +321,7 @@ async fn test_increment(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/inc")
@@ -359,7 +359,7 @@ async fn test_default_increment(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/inc")
@@ -397,7 +397,7 @@ async fn test_default_exist_increment(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/new_value_num/inc")
@@ -435,7 +435,7 @@ async fn test_decrement(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/dec")
@@ -473,7 +473,7 @@ async fn test_default_decrement(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/new_value_num/dec")
@@ -511,7 +511,7 @@ async fn test_default_exist_decrement(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/dec")
@@ -549,7 +549,7 @@ async fn test_get_ttl(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::get().uri("/keys/key1/ttl").to_request();
     let resp = test::call_service(&service, req).await;
@@ -581,7 +581,7 @@ async fn test_get_ttl_nonexistent_key(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::get()
         .uri("/keys/nonexistent_key/ttl")
@@ -615,7 +615,7 @@ async fn test_set_key_with_ttl(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
@@ -665,7 +665,7 @@ async fn test_set_ttl(
     let app = App::new()
         .document(Spec::default())
         .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
-        .build(&"docs");
+        .build("docs");
     let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/key1/ttl")
