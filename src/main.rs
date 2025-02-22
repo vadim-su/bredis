@@ -13,14 +13,27 @@ mod storages;
 
 use log::{debug, error};
 use rand::random;
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 use storages::storage::Storage;
+
+const DEFAULT_PORT: &str = "4123";
 
 enum Backend {
     Rocksdb,
     Bredis,
     SurrealKV,
 }
+
+impl Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Backend::Rocksdb => write!(f, "Rocksdb"),
+            Backend::Bredis => write!(f, "Bredis"),
+            Backend::SurrealKV => write!(f, "SurrealKV"),
+        }
+    }
+}
+
 /// The main entry point of the program.
 #[tokio::main]
 async fn main() {
@@ -72,7 +85,16 @@ async fn run(bind: &str, backend: Backend) {
 
     let server = http_server::Server::new(db);
 
-    if let Err(err) = server.serve(bind.to_owned()).await {
+    let (ip_str, port_str) = bind.split_once(':').unwrap_or((bind, DEFAULT_PORT));
+
+    if let Err(err) = server
+        .serve(
+            ip_str.parse().unwrap(),
+            port_str.parse().unwrap(),
+            backend.to_string(),
+        )
+        .await
+    {
         error!("Error serving: {err}");
     }
 }

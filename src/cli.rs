@@ -20,7 +20,7 @@ pub fn make_cli() -> Command {
                         .long("bind")
                         .value_name("BIND")
                         .help("Address to bind to")
-                        .default_value("[::1]:4123"),
+                        .default_value("0.0.0.0:4123"),
                 )
                 .arg(
                     Arg::new("backend")

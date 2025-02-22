@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 /// Core server logic.
 ///
 /// I have implemented the core server logic in this module, because to keep mod.rs clean.
@@ -9,8 +10,12 @@ use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 
 use crate::errors::Error;
-use crate::http_server::{docs, info, queries};
+use crate::http_server::{info, queries};
 use crate::storages::storage::Storage;
+
+use apistos::app::{BuildConfig, OpenApiWrapper};
+use apistos::spec::Spec;
+use apistos::ScalarConfig;
 
 #[derive(Clone)]
 pub struct Server {
@@ -23,27 +28,19 @@ impl Server {
     }
 
     #[allow(clippy::future_not_send)]
-    pub async fn serve(self, addr: String) -> Result<(), Error> {
-        log::info!("Starting server on: {addr}");
-        HttpServer::new(move || self.clone().make_app())
-            .bind(addr)?
+    pub async fn serve(self, addr: IpAddr, port: u16, backend_name: String) -> Result<(), Error> {
+        log::info!("Starting server on: {addr}:{port}");
+        HttpServer::new(move || self.clone().make_app(backend_name.clone()))
+            .bind((addr, port))?
             .run()
             .await?;
 
         Ok(())
     }
 
-    fn config(self, cfg: &mut web::ServiceConfig) {
-        cfg.configure(move |cfg| info::Service::new().config(cfg));
-        cfg.configure(move |cfg| {
-            let query_service = queries::service::DatabaseQueries::new(self.db);
-            query_service.config(cfg);
-        });
-        cfg.configure(move |cfg| docs::Service::new().config(cfg));
-    }
-
     fn make_app(
         self,
+        backend_name: String,
     ) -> App<
         impl ServiceFactory<
             ServiceRequest,
@@ -53,8 +50,31 @@ impl Server {
             Error = actix_web::error::Error,
         >,
     > {
+        let info = crate::info::Info {
+            backend: backend_name,
+            ..Default::default()
+        };
+
+        let spec = Spec {
+            info: apistos_models::info::Info {
+                title: "Bredis API".to_string(),
+                version: info.version.clone(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
         return App::new()
-            .configure(|cfg: &mut web::ServiceConfig| self.config(cfg))
-            .wrap(Logger::default());
+            .document(spec)
+            .app_data(web::Data::new(info))
+            .configure(info::configure)
+            .configure(move |cfg| {
+                queries::service::configure(self.db, cfg);
+            })
+            .wrap(Logger::default())
+            .build_with(
+                "/openapi.json",
+                BuildConfig::default().with(ScalarConfig::new(&"/docs")),
+            );
     }
 }

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use actix_web::{test, App};
+use apistos::app::OpenApiWrapper;
+use apistos::spec::Spec;
 use rstest::*;
 use rstest_reuse::{apply, template};
 
-use super::service::DatabaseQueries;
 use crate::http_server::models;
 use crate::storages::bredis::Bredis;
 use crate::storages::rocksdb::Rocksdb;
@@ -32,10 +33,14 @@ async fn test_get_value(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::default().uri("/keys/key1").to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -51,12 +56,16 @@ async fn test_get_all_keys(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::default()
         .uri("/keys?prefix=prefix_")
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -81,8 +90,12 @@ async fn test_set_key(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
         .set_json(models::SetRequest {
@@ -91,7 +104,7 @@ async fn test_set_key(
             ttl: -1,
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -107,11 +120,13 @@ async fn test_delete_key(
     db: Box<dyn Storage>,
 ) {
     let db_arc = Arc::new(db.await);
-    let query_service = DatabaseQueries::new(db_arc.clone());
-
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::delete().uri("/keys/key1").to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -130,15 +145,18 @@ async fn test_delete_keys(
 ) {
     let db_arc = Arc::new(db.await);
 
-    let query_service = DatabaseQueries::new(db_arc.clone());
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::delete()
         .uri("/keys")
         .set_json(models::DeleteKeysRequest {
             prefix: "prefix_".to_string(),
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -159,8 +177,11 @@ async fn test_ttl(
 ) {
     let db_arc = Arc::new(db.await);
 
-    let query_service = DatabaseQueries::new(db_arc.clone());
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
         .set_json(models::SetRequest {
@@ -169,7 +190,7 @@ async fn test_ttl(
             ttl: 2,
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     std::thread::sleep(std::time::Duration::from_secs(1));
     assert!(
         resp.status().is_success(),
@@ -192,8 +213,12 @@ async fn test_integer_value(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
         .set_json(models::SetRequest {
@@ -202,7 +227,7 @@ async fn test_integer_value(
             ttl: -1,
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -211,7 +236,7 @@ async fn test_integer_value(
     );
 
     let req = test::TestRequest::get().uri("/keys/key3").to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -240,8 +265,12 @@ async fn test_string_value(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
         .set_json(models::SetRequest {
@@ -250,7 +279,7 @@ async fn test_string_value(
             ttl: -1,
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -259,7 +288,7 @@ async fn test_string_value(
     );
 
     let req = test::TestRequest::get().uri("/keys/key3").to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -288,8 +317,12 @@ async fn test_increment(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/inc")
         .set_json(models::IncrementRequest {
@@ -297,7 +330,7 @@ async fn test_increment(
             default: None,
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -322,8 +355,12 @@ async fn test_default_increment(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/inc")
         .set_json(models::IncrementRequest {
@@ -331,7 +368,7 @@ async fn test_default_increment(
             default: Some(10),
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -356,8 +393,12 @@ async fn test_default_exist_increment(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/new_value_num/inc")
         .set_json(models::IncrementRequest {
@@ -365,7 +406,7 @@ async fn test_default_exist_increment(
             default: Some(10),
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -390,8 +431,12 @@ async fn test_decrement(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/dec")
         .set_json(models::IncrementRequest {
@@ -399,7 +444,7 @@ async fn test_decrement(
             default: None,
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -424,8 +469,12 @@ async fn test_default_decrement(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/new_value_num/dec")
         .set_json(models::IncrementRequest {
@@ -433,7 +482,7 @@ async fn test_default_decrement(
             default: Some(10),
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -458,8 +507,12 @@ async fn test_default_exist_decrement(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/value_num/dec")
         .set_json(models::IncrementRequest {
@@ -467,7 +520,7 @@ async fn test_default_exist_decrement(
             default: Some(10),
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -492,10 +545,14 @@ async fn test_get_ttl(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::get().uri("/keys/key1/ttl").to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -520,12 +577,16 @@ async fn test_get_ttl_nonexistent_key(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::get()
         .uri("/keys/nonexistent_key/ttl")
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -550,8 +611,12 @@ async fn test_set_key_with_ttl(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys")
         .set_json(models::SetRequest {
@@ -560,7 +625,7 @@ async fn test_set_key_with_ttl(
             ttl: 5,
         })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -571,7 +636,7 @@ async fn test_set_key_with_ttl(
     let req = test::TestRequest::get()
         .uri("/keys/key_with_ttl/ttl")
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -596,13 +661,17 @@ async fn test_set_ttl(
     db: Box<dyn Storage>,
 ) {
     let db = db.await;
-    let query_service = DatabaseQueries::new(Arc::new(db));
-    let app = test::init_service(App::new().configure(|cfg| query_service.config(cfg))).await;
+    let db_arc = Arc::new(db);
+    let app = App::new()
+        .document(Spec::default())
+        .configure(|cfg| super::service::configure(db_arc.clone(), cfg))
+        .build(&"docs");
+    let service = test::init_service(app).await;
     let req = test::TestRequest::post()
         .uri("/keys/key1/ttl")
         .set_json(models::SetTtlRequest { ttl: 5 })
         .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
@@ -611,7 +680,7 @@ async fn test_set_ttl(
     );
 
     let req = test::TestRequest::get().uri("/keys/key1/ttl").to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = test::call_service(&service, req).await;
     assert!(
         resp.status().is_success(),
         "{:?}: {:?}",
